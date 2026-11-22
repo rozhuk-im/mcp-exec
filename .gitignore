@@ -1,0 +1,43 @@
+# Binaries
+/mcp-exec
+bin/
+cmd/*/mcp-exec
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Coverage
+coverage.out
+coverage.html
+
+# Docker (docker/.env is local, .env.example is tracked)
+.env
+docker/.env

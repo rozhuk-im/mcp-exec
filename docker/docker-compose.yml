@@ -1,0 +1,45 @@
+version: "3.8"
+
+# Run from the repository root:  docker compose -f docker/docker-compose.yml up --build
+# (or from this directory:        docker compose up --build)
+# Copy docker/.env.example to docker/.env and customize.
+
+services:
+  mcp-exec:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        VERSION: ${VERSION:-1.0.0}
+        # TARGETOS/TARGETARCH are auto-detected: BuildKit supplies them for the target
+        # platform, otherwise the Dockerfile falls back to `go env` of the builder (i.e.
+        # the host machine). Uncomment only to force a cross-build, e.g. TARGETARCH: arm64
+    container_name: mcp-exec
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - MCP_EXEC_ADDR=0.0.0.0
+      - MCP_EXEC_PORT=8080
+      - MCP_EXEC_TRANSPORT=http
+      - MCP_EXEC_AUTH_KEYS=${AUTH_KEY:-change-me-to-your-secret-key}
+      - MCP_EXEC_LOG_MODE=stdout
+      - MCP_EXEC_DAEMON=false
+    volumes:
+      - ../logs:/var/log
+      # Mount your own ini over the image default if needed (then pass --config):
+      # - ./config/mcp-exec.ini:/etc/mcp-exec.ini:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    healthcheck:
+      # POST-only endpoint with authentication; key must match MCP_EXEC_AUTH_KEYS
+      test: ["CMD-SHELL", "wget -q -O /dev/null --post-data='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}' --header=\"Authorization: Bearer $${MCP_EXEC_AUTH_KEYS:-change-me-to-your-secret-key}\" http://127.0.0.1:8080/mcp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

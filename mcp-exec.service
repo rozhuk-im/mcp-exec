@@ -1,0 +1,34 @@
+# systemd unit — Linux only. On FreeBSD/DragonFlyBSD/OpenBSD/NetBSD use an rc.d
+# script with the same command line (see the README platform matrix); install.sh
+# skips this file on non-Linux systems.
+
+[Unit]
+Description=MCP Exec Server
+Documentation=https://github.com/mcp-exec
+After=network.target
+
+[Service]
+Type=simple
+User=mcp-exec
+Group=mcp-exec
+ExecStart=/usr/local/bin/mcp-exec --config /etc/mcp-exec/mcp-exec.ini
+EnvironmentFile=-/etc/default/mcp-exec
+Restart=on-failure
+RestartSec=5
+
+# chroot() needs CAP_CHROOT when running as a non-root user
+AmbientCapabilities=CAP_CHROOT
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=128
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,64 @@
+; MCP Exec Server Configuration
+; ==============================
+; Precedence: --config flag > MCP_EXEC_* env vars > this file > built-in defaults.
+; Inline comments (" ; ") are stripped from unquoted values.
+
+[server]
+; Network address to bind to (empty = all interfaces)
+; For transport=domain this is the Unix socket path, e.g. /tmp/mcp-exec.sock
+addr = 0.0.0.0
+
+; Port to listen on (ignored for domain/stdio transports)
+port = 8088
+
+; Transport type: http, https, domain, stdio
+; https requires TLS_CERT/TLS_KEY environment variables
+transport = http
+
+; Maximum request size in bytes (default: 1048576 = 1MB)
+max_request_size = 65536
+
+; Maximum response size in bytes (default: 10485760 = 10MB)
+max_response_size = 65536
+
+; Authorization keys (comma-separated list of API keys)
+; Leave empty to disable authentication
+;auth_keys = your-secret-api-key-here
+
+; Run as daemon (true/false). Re-exec + setsid; stdout logging is lost in daemon mode.
+; Works on Linux, FreeBSD, DragonFlyBSD, OpenBSD, NetBSD and macOS (on Windows
+; the child is re-execed without setsid).
+daemon = false
+
+[logging]
+; Log mode: stdout, file, syslog (syslog is not supported on Windows)
+mode = stdout
+
+; Log file path (used when mode = file)
+file = /var/log/mcp-exec.log
+
+; Syslog settings (used when mode = syslog)
+; Device: /dev/log on Linux and the BSDs, /var/run/log on macOS
+syslog_tag = mcp-exec
+syslog_network = udp
+syslog_address = /dev/log
+
+[security]
+; Chroot path for command execution
+; If set, all commands will be executed within this chroot.
+; Supported on Linux and the BSDs (FreeBSD, DragonFlyBSD, OpenBSD, NetBSD);
+; requires root or CAP_CHROOT. Executables, shells and working
+; directories must exist INSIDE the chroot at the same absolute paths.
+; Leave empty to disable chroot
+chroot_path =
+
+; Roots the edit_file tool is confined to, comma-separated, e.g.
+;   allowed_dirs = /srv/mcp-exec/files, /etc/mcp-exec
+; Confinement is checked after resolving symlinks, so a symlink cannot take
+; the tool outside a root. With no roots set the tool falls back to
+; chroot_path as its root; with neither set it is unconfined, like exec/shell.
+; Paths must be absolute when allowed_dirs is set.
+allowed_dirs =
+
+; Largest file edit_file will read, in bytes (default: 10485760 = 10MB)
+max_file_size = 10485760

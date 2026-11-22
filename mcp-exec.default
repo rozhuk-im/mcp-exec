@@ -1,0 +1,33 @@
+# MCP Exec Server Environment Configuration
+# Copy to /etc/default/mcp-exec and edit as needed
+# (installed by install.sh; referenced by mcp-exec.service as EnvironmentFile —
+#  i.e. this file is a systemd/Linux thing; BSDs use their own rc.d scripts)
+
+# Server configuration
+# For transport=domain, MCP_EXEC_ADDR is the unix socket path (port is ignored)
+MCP_EXEC_ADDR=0.0.0.0
+MCP_EXEC_PORT=8080
+MCP_EXEC_TRANSPORT=http
+
+# Authentication (set your own secure key)
+MCP_EXEC_AUTH_KEYS=change-me-to-your-secret-key
+
+# Logging (file mode; syslog works on Linux and the BSDs via /dev/log,
+# on macOS via /var/run/log; not supported on Windows)
+MCP_EXEC_LOG_MODE=file
+MCP_EXEC_LOG_FILE=/var/log/mcp-exec.log
+
+# Limits
+MCP_EXEC_MAX_REQ_SIZE=1048576
+MCP_EXEC_MAX_RESP_SIZE=10485760
+
+# Daemon mode (re-exec + setsid on unix; stdout logging is lost when daemonized)
+MCP_EXEC_DAEMON=false
+
+# Chroot (optional - leave empty to disable; Linux and the BSDs —
+# FreeBSD/DragonFlyBSD/OpenBSD/NetBSD — need root/privileges)
+MCP_EXEC_CHROOT=
+
+# TLS (required for transport=https, optional for domain)
+# TLS_CERT=/path/to/certificate.pem
+# TLS_KEY=/path/to/private-key.pem
