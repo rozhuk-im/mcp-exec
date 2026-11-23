@@ -5,7 +5,8 @@ Status: **fixes applied 2026-11-16**; structure rebuilt (see section 9);
 BSD support added 2026-11-18 (see section 10); auto-detection of the build platform
 added 2026-11-18 (see section 11); stdout/stderr are always returned — 2026-11-20 (see section 12);
 `edit_file` added 2026-11-21 (see section 13); a process start failure is returned
-through MCP — 2026-11-22 (see section 14)
+through MCP — 2026-11-22 (see section 14); per-tool switches, the `[tools]` section
+— 2026-11-22 (see section 15)
 
 Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/platform_linux.go`,
 `src/platform_darwin.go`, `src/platform_windows.go`, `src/platform_other.go`,
@@ -13,7 +14,7 @@ Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/pla
 `cmd/mcp-exec/main.go`, `tests/main_test.go`, `tests/edit_file_test.go`, `tests/platform_test.go`,
 `tests/platform_bsd_test.go`, `tests/platform_linux_test.go`,
 `tests/platform_darwin_test.go`, `tests/platform_windows_test.go`,
-`tests/platform_unix_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
+`tests/platform_unix_test.go`, `tests/tools_config_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
 `mcp-exec.ini`, `mcp-exec.default`, `mcp-exec.service`, `docker/Dockerfile`,
 `docker/docker-compose.yml`, `docker/.env.example`, `.gitignore`.
 
@@ -40,6 +41,7 @@ Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/pla
 | Build scripts | ✅ | `Makefile`, `build.sh`, `install.sh`; cross-builds compile; the target OS/architecture is auto-detected (see section 11) |
 | Minimizing dependencies | ✅ | stdlib only, `go.mod` without external modules |
 | `edit_file` tool (the standard tool of the reference filesystem server) | ✅ | See section 13 (2026-11-21) — line-based edits, git-style diff, dryRun, allowed_dirs |
+| Per-tool switches (`[tools]` section) | ✅ | See section 15 (2026-11-22) — a switched-off tool is not announced and a direct call is refused |
 
 ---
 
@@ -450,3 +452,51 @@ Worth noting as a deliberate effect: previously a "failed" start at the transpor
 like a successful `result` with `isError:false`, now it is a JSON-RPC error — a client that simply
 read the response stdout will see `error` instead of `result`. For an exec server this is exactly
 the right channel: "could not start what was asked" ≠ "did it and returned with a code".
+
+---
+
+## 15. Per-tool switches: the `[tools]` section (2026-11-22)
+
+Every tool can now be switched on or off in a new `[tools]` section — the key is the
+tool name, the value is parsed like the other INI booleans (`true/1/yes/on` are on,
+anything else is off). A tool that is switched off is not announced through
+`tools/list`, and a direct `tools/call` does not reach its handler either — it is
+refused the way an unknown tool is (`-32602`). A tool the section does not name keeps
+the default — enabled — so adding the section changes nothing until a tool is
+explicitly switched off; `MCP_EXEC_DISABLED_TOOLS` (comma-separated names to switch
+off) is the env override, in the same precedence order the other options use.
+
+The handlers now read one registry: `toolRegistry` pairs every defined tool with its
+handler, so the definition, what `tools/list` announces, what `tools/call` dispatches
+to and the switches all read the same place. The `exec`/`shell` definitions moved out
+of `handleListTools` into `execTool()`/`shellTool()`, mirroring `editFileTool()` in
+`edit_file.go`; the switch dispatch became a registry lookup, which is also where the
+unknown-tool check lives now — with the lookup deciding reachability, the old `switch`
+`default` had nothing left to guard. `initialize` still answers `listChanged: false`:
+the switches are read while the config loads, before serving, so the announced list
+never changes under a running server.
+
+Changed:
+
+- `src/server.go` — `Tools map[string]bool` in `Config` (its own block, so the gofmt
+  situation of section 13 is unchanged), the `tools` case in `setConfigValue`, the
+  `MCP_EXEC_DISABLED_TOOLS` override in `LoadConfig`, `ToolEnabled`, `toolRegistry`
+  with the lookup, `handleListTools`/`handleToolsCall` rebuilt on top of the registry;
+- `tests/tools_config_test.go` — six new tests: the `[tools]` section parsing
+  (on/off, the defaults, unknown names), `tools/list` without a disabled tool,
+  `tools/list` empty when everything is off (the empty announcement marshals as `[]`,
+  not `null`), a disabled tool refused in `tools/call` (the handler must not run —
+  checked through a `touch` marker that stays missing), the env override beating the
+  section, and the positive control: the neighbours of a disabled tool stay announced
+  and reachable;
+- `README.md` — the `[tools]` section in the configuration example, the env table row,
+  the feature bullet, the `Available Tools` intro;
+- `mcp-exec.ini`, `mcp-exec.ini.wrk`, `mcp-exec.default` — the new section and the new
+  env var, all left at their defaults.
+
+Build and tests were run on this machine (go1.27.4, freebsd/amd64): `go build ./...`,
+`go vet ./...` — no remarks; `go test ./...` — all tests green; `gofmt -l` — still only
+`src/server.go`, the known Config-comment change from section 13, its diff is unchanged
+and the new code is formatted. Checked end-to-end through the stdio transport with
+`shell` switched off: `tools/list` announces `exec` and `edit_file`, a direct call to
+`shell` is refused, `exec` runs as before.

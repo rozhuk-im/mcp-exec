@@ -9,6 +9,9 @@ the standard line-based `edit_file` tool. Implements protocol version `2025-06-1
 - **Multiple Transport Modes**: HTTP, HTTPS, Unix domain socket, or stdio
 - **Flexible Configuration**: INI format configuration file with environment variable
   overrides and a `--config` command-line flag (precedence: flag > env > file > defaults)
+- **Per-Tool Switches** (`[tools]` section): every tool can be switched on or off; a
+  tool that is switched off is not announced through `tools/list` and a direct call to
+  it is refused (`MCP_EXEC_DISABLED_TOOLS` is the env override for the section)
 - **Security Features**:
   - API key authentication (constant-time comparison)
   - Optional chroot isolation for command execution (Linux and the BSDs —
@@ -142,6 +145,15 @@ allowed_dirs =
 
 ; Largest file the file tool will read, in bytes (default: 10485760 = 10MB)
 max_file_size = 10485760
+
+[tools]
+; Per-tool switches — the key is the tool name, the value is parsed like the
+; other INI booleans (true/1/yes/on are on, anything else is off). A tool that
+; is switched off is not announced through tools/list, and a direct call to it
+; is refused; a tool the section does not name keeps the default (enabled).
+exec = true
+shell = true
+edit_file = true
 ```
 
 ### Command-Line Flags
@@ -169,6 +181,7 @@ All configuration options can be overridden via environment variables
 | `MCP_EXEC_CHROOT` | Chroot path for command execution (Linux and the BSDs) |
 | `MCP_EXEC_ALLOWED_DIRS` | Roots the `edit_file` tool is confined to (comma-separated) |
 | `MCP_EXEC_MAX_FILE_SIZE` | Largest file `edit_file` will read, in bytes |
+| `MCP_EXEC_DISABLED_TOOLS` | Tools to switch off (comma-separated names), overrides the `[tools]` section |
 | `MCP_EXEC_DAEMON` | Run as daemon (true/false/1/0/yes/no/on/off) |
 | `MCP_EXEC_LOG_MODE` | Log mode: `stdout`, `file`, `syslog` |
 | `MCP_EXEC_LOG_FILE` | Log file path |
@@ -265,6 +278,11 @@ authentication is disabled. Stdio transport is unauthenticated by design (local 
 Every tool carries the `2025-06-18` annotation hints (`readOnlyHint`, `destructiveHint`,
 `idempotentHint`, `openWorldHint`), so a client can see what a call is allowed to do before
 making it.
+
+Every tool can be switched on or off in the `[tools]` section (the key is the tool name,
+the value is parsed like the other INI booleans). A tool that is switched off is not
+announced through `tools/list`, and a direct `tools/call` does not reach its handler
+either — it is refused the way an unknown tool is.
 
 #### `exec` - Execute a command directly
 

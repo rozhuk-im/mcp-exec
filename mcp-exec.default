@@ -28,6 +28,11 @@ MCP_EXEC_DAEMON=false
 # FreeBSD/DragonFlyBSD/OpenBSD/NetBSD — need root/privileges)
 MCP_EXEC_CHROOT=
 
+# Tools (per-tool switches live in the [tools] section of the INI file, the key
+# being the tool name; this env var is the override: comma-separated names to
+# switch off)
+# MCP_EXEC_DISABLED_TOOLS=shell,edit_file
+
 # TLS (required for transport=https, optional for domain)
 # TLS_CERT=/path/to/certificate.pem
 # TLS_KEY=/path/to/private-key.pem

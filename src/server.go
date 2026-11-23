@@ -43,6 +43,8 @@ type Config struct {
 	ChrootPath      string   // [security] chroot_path — Linux and the BSDs, requires privileges
 	AllowedDirs     []string // [security] allowed_dirs — roots the file tool (edit_file) is confined to, comma-separated
 	MaxFileSize     int64    // [security] max_file_size — the largest file a file tool will read (default: DefaultMaxFileSize)
+
+	Tools map[string]bool // [tools] per-tool switches — <tool name> = on/off; a tool the section does not name keeps the default (enabled)
 }
 
 // MCPRequest represents an incoming MCP request
@@ -326,6 +328,8 @@ func LoadConfig(explicitPath string) error {
 	Cfg.MaxFileSize = DefaultMaxFileSize
 	Cfg.Transport = "http"
 	Cfg.LogMode = "stdout"
+	// Cfg.Tools stays nil — every tool is enabled unless the [tools] section or the
+	// env override at the end of LoadConfig says otherwise
 
 	// Config file: flag > env > default path
 	configPath := explicitPath
@@ -441,6 +445,18 @@ func LoadConfig(explicitPath string) error {
 	if syslogAddress := os.Getenv("MCP_EXEC_SYSLOG_ADDRESS"); syslogAddress != "" {
 		Cfg.SyslogAddress = syslogAddress
 	}
+	if disabledTools := os.Getenv("MCP_EXEC_DISABLED_TOOLS"); disabledTools != "" {
+		// the env override for the [tools] section: a comma-separated list of tools to switch off
+		if Cfg.Tools == nil {
+			Cfg.Tools = make(map[string]bool)
+		}
+		for _, name := range strings.Split(disabledTools, ",") {
+			name = strings.ToLower(strings.TrimSpace(name))
+			if name != "" {
+				Cfg.Tools[name] = false
+			}
+		}
+	}
 
 	return nil
 }
@@ -500,6 +516,11 @@ func setConfigValue(section, key, value string) {
 				Cfg.MaxFileSize = n
 			}
 		}
+	case "tools":
+		if Cfg.Tools == nil {
+			Cfg.Tools = make(map[string]bool)
+		}
+		Cfg.Tools[key] = ParseBool(value)
 	}
 }
 
@@ -753,76 +774,127 @@ func handleInitialize(req *MCPRequest) *MCPResponse {
 	}
 }
 
-func handleListTools(req *MCPRequest) *MCPResponse {
-	tools := ListToolsResponse{
-		Tools: []Tool{
-			{
-				Name:        "exec",
-				Description: "Execute a program directly with arguments",
-				InputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]any{
-						"command": map[string]any{
-							"type":        "string",
-							"description": "Program to execute",
-						},
-						"args": map[string]any{
-							"type":        "array",
-							"description": "Program arguments",
-							"items":       map[string]any{"type": "string"},
-						},
-						"env": map[string]any{
-							"type":        "array",
-							"description": "Environment variables as KEY=VALUE pairs",
-							"items":       map[string]any{"type": "string"},
-						},
-						"dir": map[string]any{
-							"type":        "string",
-							"description": "Working directory for the command",
-						},
-						"timeout": map[string]any{
-							"type":        "integer",
-							"description": "Timeout in seconds",
-						},
-					},
-					Required: []string{"command"},
+// execTool and shellTool are the tool definitions, worded the way the standard tools
+// are worded; they mirror editFileTool() in edit_file.go, so every tool the server
+// defines is a function of its own.
+func execTool() Tool {
+	return Tool{
+		Name:        "exec",
+		Description: "Execute a program directly with arguments",
+		InputSchema: InputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"command": map[string]any{
+					"type":        "string",
+					"description": "Program to execute",
 				},
-				Annotations: toolHints(false, true, false, true),
-			},
-			{
-				Name:        "shell",
-				Description: "Execute a command through shell interpreter",
-				InputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]any{
-						"command": map[string]any{
-							"type":        "string",
-							"description": "Shell command to execute",
-						},
-						"shell": map[string]any{
-							"type":        "string",
-							"description": "Shell to use (default: /bin/sh)",
-						},
-						"env": map[string]any{
-							"type":        "array",
-							"description": "Environment variables",
-							"items":       map[string]any{"type": "string"},
-						},
-						"dir": map[string]any{
-							"type":        "string",
-							"description": "Working directory",
-						},
-						"timeout": map[string]any{
-							"type":        "integer",
-							"description": "Timeout in seconds",
-						},
-					},
-					Required: []string{"command"},
+				"args": map[string]any{
+					"type":        "array",
+					"description": "Program arguments",
+					"items":       map[string]any{"type": "string"},
 				},
-				Annotations: toolHints(false, true, false, true),
+				"env": map[string]any{
+					"type":        "array",
+					"description": "Environment variables as KEY=VALUE pairs",
+					"items":       map[string]any{"type": "string"},
+				},
+				"dir": map[string]any{
+					"type":        "string",
+					"description": "Working directory for the command",
+				},
+				"timeout": map[string]any{
+					"type":        "integer",
+					"description": "Timeout in seconds",
+				},
 			},
-			editFileTool(),
+			Required: []string{"command"},
 		},
+		Annotations: toolHints(false, true, false, true),
+	}
+}
+
+func shellTool() Tool {
+	return Tool{
+		Name:        "shell",
+		Description: "Execute a command through shell interpreter",
+		InputSchema: InputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"command": map[string]any{
+					"type":        "string",
+					"description": "Shell command to execute",
+				},
+				"shell": map[string]any{
+					"type":        "string",
+					"description": "Shell to use (default: /bin/sh)",
+				},
+				"env": map[string]any{
+					"type":        "array",
+					"description": "Environment variables",
+					"items":       map[string]any{"type": "string"},
+				},
+				"dir": map[string]any{
+					"type":        "string",
+					"description": "Working directory",
+				},
+				"timeout": map[string]any{
+					"type":        "integer",
+					"description": "Timeout in seconds",
+				},
+			},
+			Required: []string{"command"},
+		},
+		Annotations: toolHints(false, true, false, true),
+	}
+}
+
+// toolEntry pairs a tool definition with its handler. The registry below is the one
+// place where the server's tools live: the definition, what tools/list announces,
+// what tools/call dispatches to and the [tools] switches all read it.
+type toolEntry struct {
+	def     Tool
+	handler func(json.RawMessage) (interface{}, error)
+}
+
+// toolRegistry lists every tool the server defines, in announcement order.
+var toolRegistry = []toolEntry{
+	{execTool(), executeCommand},
+	{shellTool(), executeShell},
+	{editFileTool(), ExecuteEditFile},
+}
+
+// lookupTool finds a tool in the registry by name. ok=false means the name is not a
+// tool of this server at all — the [tools] switches apply to defined tools only, an
+// undefined name stays the plain unknown tool.
+func lookupTool(name string) (toolEntry, bool) {
+	for _, entry := range toolRegistry {
+		if entry.def.Name == name {
+			return entry, true
+		}
+	}
+	return toolEntry{}, false
+}
+
+// ToolEnabled reports whether a tool is switched on in the [tools] section (the key is
+// the tool name, the value is parsed like the other INI booleans). A tool the section
+// does not name keeps the default — enabled — so adding the section changes nothing
+// until a tool is explicitly switched off. The map is written while the config loads,
+// before serving, and is read-only while handlers run.
+func ToolEnabled(name string) bool {
+	if enabled, ok := Cfg.Tools[name]; ok {
+		return enabled
+	}
+	return true
+}
+
+func handleListTools(req *MCPRequest) *MCPResponse {
+	// the [tools] section decides which tools are announced; a tool that is switched
+	// off is not in the list, and tools/call will refuse it too (see handleToolsCall)
+	tools := ListToolsResponse{Tools: []Tool{}}
+	for _, entry := range toolRegistry {
+		if ToolEnabled(entry.def.Name) {
+			tools.Tools = append(tools.Tools, entry.def)
+		}
 	}
 
 	return &MCPResponse{
@@ -841,29 +913,25 @@ func handleToolsCall(req *MCPRequest) *MCPResponse {
 		return makeError(req.ID, -32602, "Invalid params", "Failed to parse parameters")
 	}
 
-	var result interface{}
-	var execErr error
+	// the [tools] section decides what is reachable: a tool that is switched off is
+	// not announced through tools/list, and a direct call does not reach its handler
+	// either — it is refused the way an unknown tool is
+	entry, defined := lookupTool(params.Name)
+	if !defined {
+		return makeError(req.ID, -32602, "Invalid params", "Unknown tool: "+params.Name)
+	}
+	if !ToolEnabled(params.Name) {
+		return makeError(req.ID, -32602, "Invalid params", "Tool disabled: "+params.Name)
+	}
 
-	switch params.Name {
-	case "exec":
-		result, execErr = executeCommand(params.Arguments)
-		if execErr != nil {
-			return makeError(req.ID, errCodeExecution, "Execution error", execErr.Error())
-		}
-	case "shell":
-		result, execErr = executeShell(params.Arguments)
-		if execErr != nil {
-			return makeError(req.ID, errCodeExecution, "Execution error", execErr.Error())
-		}
-	case "edit_file":
-		result, execErr = ExecuteEditFile(params.Arguments)
-		if execErr != nil {
+	result, execErr := entry.handler(params.Arguments)
+	if execErr != nil {
+		if entry.def.Name == "edit_file" {
 			// the file tool follows the standard: bad input is -32602, a failure to
 			// do the job is a tool result with isError:true (see toolError)
 			return toolError(req.ID, execErr)
 		}
-	default:
-		return makeError(req.ID, -32602, "Invalid params", "Unknown tool: "+params.Name)
+		return makeError(req.ID, errCodeExecution, "Execution error", execErr.Error())
 	}
 
 	return &MCPResponse{
