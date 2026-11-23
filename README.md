@@ -1,5 +1,7 @@
 # MCP Exec Server
 
+[![CI Actions Status](https://github.com/rozhuk-im/mcp-exec/workflows/CI/badge.svg)](https://github.com/rozhuk-im/mcp-exec/actions)
+
 An MCP (Model Context Protocol) server written in Go that allows execution of arbitrary
 shell commands and utilities with configurable security features, and edits text files with
 the standard line-based `edit_file` tool. Implements protocol version `2025-06-18`.

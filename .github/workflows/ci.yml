@@ -1,0 +1,139 @@
+# GitHub Actions for mcp-exec.
+#
+# The repository is mirrored to GitHub, so this is the CI that runs on the mirror
+# (the Gitea remote is a plain git remote, it does not run Actions).
+#
+# on:
+#   push              - every push to master, plus a tagged release
+#   pull_request      - every pull request opened against master / updated
+#   workflow_dispatch - manual run, to re-check a commit on demand
+#
+# jobs:
+#   test              - go vet + the test suite on the platforms GitHub gives
+#                       hosted runners for (linux, macOS, Windows)
+#   build             - cross-compile for every platform the Makefile knows
+#                       about (the build-* targets), kept as artifacts
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*.*.*", "v*.*.*-*"]
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+# The workflow only reads the repository.
+permissions:
+  contents: read
+
+# A new push to the same branch/pull request cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Version stamped into the binary (-X main.version); a tag run stamps the tag.
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '1.0.0' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-amd64
+          - os: macos-latest
+            name: darwin-arm64
+          - os: windows-latest
+            name: windows-amd64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Not go-version-file: go.mod asks for 1.21, and setup-go installs
+          # exactly that — Go 1.21.x is what made the darwin/arm64 job fail with
+          # "missing LC_UUID load command / signal: abort trap": its linker does
+          # not write the LC_UUID load command that the dyld of the newer macOS
+          # insists on, so the test binary never gets started. New toolchains do
+          # write it, so the version is pinned here; the 1.21 line in go.mod
+          # stays the language floor, nothing in the code uses anything newer.
+          go-version: stable
+
+      - name: Toolchain
+        # Printed so a platform failure can be tied to the exact toolchain
+        run: go version
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        # `make test` where make exists (the README command), `go test` on the
+        # Windows runner, which has no make on PATH; the recipe is the same.
+        run: |
+          if command -v make > /dev/null 2>&1; then
+            make test
+          else
+            go test -v ./...
+          fi
+        shell: bash
+
+  build:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        # The Makefile build-* targets; DragonFly BSD is amd64-only in the Go toolchain.
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: arm64
+          - goos: netbsd
+            goarch: amd64
+          - goos: openbsd
+            goarch: amd64
+          - goos: dragonfly
+            goarch: amd64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Not go-version-file either: one pinned-current toolchain for every
+          # job, so the build and the tests it pairs with are made by the same
+          # compiler, and it carries the current security fixes.
+          go-version: stable
+
+      - name: Build
+        # The Makefile stamps -X main.version=$(VERSION), which is the tag on a tag run.
+        run: make build-${{ matrix.goos }}-${{ matrix.goarch }} VERSION=${{ env.VERSION }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-exec-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin/mcp-exec
+          retention-days: 14
