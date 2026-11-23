@@ -235,8 +235,10 @@ func maxFileSizeLimit() int64 {
 
 // ResolveEditPath resolves the path argument of edit_file against the allowed
 // roots. Confinement is checked after resolving symlinks as deep as the existing
-// part of the path goes, so a symlink cannot be used to edit something outside
-// the roots. With no roots configured the path is cleaned and used as-is.
+// part of the path goes, the roots the same way, so a symlink cannot be used to
+// edit something outside the roots and a root reached through a symlink keeps
+// covering its own tree. With no roots configured the path is cleaned and used
+// as-is.
 func ResolveEditPath(p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
 		return "", errors.New("path is required")
@@ -265,6 +267,15 @@ func ResolveEditPath(p string) (string, error) {
 		return "", err
 	}
 	for _, root := range roots {
+		// the root is resolved too, so both sides of the check meet on the real
+		// filesystem: a root reached through a symlink is the directory it points
+		// to (macOS mounts /var — and every temporary directory under it — as
+		// private/var), and comparing that root as spelled would leave everything
+		// inside it outside
+		if realRoot, err := realpathNearest(root); err == nil && insideRoot(realRoot, real) {
+			return clean, nil
+		}
+		// a root that does not exist cannot be resolved, and is taken as spelled
 		if insideRoot(root, real) {
 			return clean, nil
 		}

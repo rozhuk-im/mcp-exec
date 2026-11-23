@@ -391,6 +391,48 @@ func TestResolveEditPathConfinement(t *testing.T) {
 	}
 }
 
+// The roots are compared after resolving symlinks, so a root reached through a
+// symlink is the same directory as the one it points to and the paths under it
+// are inside it — which is how macOS reaches every temporary directory (/var is
+// private/var), and the check has to resolve both sides to meet there.
+func TestResolveEditPathSymlinkedRoot(t *testing.T) {
+	old := mcpxec.Cfg
+	defer func() { mcpxec.Cfg = old }()
+
+	root := t.TempDir()
+	linkDir := t.TempDir()
+	link := filepath.Join(linkDir, "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("symlinks are not available here (%v)", err)
+	}
+	mcpxec.Cfg.AllowedDirs = []string{link}
+
+	// the root named by what it really is, not through the link, is the same root
+	inside := filepath.Join(root, "inside.txt")
+	if got, err := mcpxec.ResolveEditPath(inside); err != nil || got != filepath.Clean(inside) {
+		t.Errorf("a path inside a symlinked root must be accepted, got %q, %v", got, err)
+	}
+	// and the same path named through the link is the same file
+	viaLink := filepath.Join(link, "inside.txt")
+	if got, err := mcpxec.ResolveEditPath(viaLink); err != nil || got != filepath.Clean(viaLink) {
+		t.Errorf("a path through the symlinked root must be accepted, got %q, %v", got, err)
+	}
+
+	// resolution works both ways: a file inside the root that is a symlink out of
+	// it stays outside, and stays refused
+	target := filepath.Join(linkDir, "target.txt")
+	if err := os.WriteFile(target, []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	escape := filepath.Join(root, "escape.txt")
+	if err := os.Symlink(target, escape); err != nil {
+		t.Skipf("symlinks are not available here (%v)", err)
+	}
+	if _, err := mcpxec.ResolveEditPath(escape); err == nil {
+		t.Error("a symlink inside the root pointing outside it must be refused")
+	}
+}
+
 func TestEditFileStaysInsideAllowedDirs(t *testing.T) {
 	inside := t.TempDir()
 	outside := t.TempDir()
