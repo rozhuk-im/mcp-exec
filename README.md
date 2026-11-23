@@ -4,6 +4,15 @@ An MCP (Model Context Protocol) server written in Go that allows execution of ar
 shell commands and utilities with configurable security features, and edits text files with
 the standard line-based `edit_file` tool. Implements protocol version `2025-06-18`.
 
+
+## Donate
+Support the author
+* **GitHub Sponsors:** [!["GitHub Sponsors"](https://camo.githubusercontent.com/220b7d46014daa72a2ab6b0fcf4b8bf5c4be7289ad4b02f355d5aa8407eb952c/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f2d53706f6e736f722d6661666266633f6c6f676f3d47697448756225323053706f6e736f7273)](https://github.com/sponsors/rozhuk-im) <br/>
+* **Buy Me A Coffee:** [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/rojuc) <br/>
+* **PayPal:** [![PayPal](https://srv-cdn.himpfen.io/badges/paypal/paypal-flat.svg)](https://paypal.me/rojuc) <br/>
+* **Bitcoin (BTC):** `1AxYyMWek5vhoWWRTWKQpWUqKxyfLarCuz` <br/>
+
+
 ## Features
 
 - **Multiple Transport Modes**: HTTP, HTTPS, Unix domain socket, or stdio
@@ -607,8 +616,8 @@ OpenBSD/NetBSD) running the same `--config` command line; on macOS use a launchd
 
 ## License
 
-MIT License — see `LICENSE`.
+BSD License — see `LICENSE`.
 
 ## Author
 
-MCP Exec Server - A minimal MCP server for command execution
+Rozhuk Ivan and AI
