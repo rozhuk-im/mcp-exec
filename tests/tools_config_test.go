@@ -35,15 +35,16 @@ func iniFile(t *testing.T, content string) string {
 	return path
 }
 
-// callTool runs a tools/call round trip for a named tool through the exported
-// API, the same path an MCP client takes.
+// callTool runs a tools/call round trip for a named tool through the exported API,
+// the same path an MCP client takes — toolName is the [tools] key, and the request
+// carries it the way the server announces it.
 func callTool(t *testing.T, toolName, args string) *mcpxec.MCPResponse {
 	t.Helper()
 	req := &mcpxec.MCPRequest{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "tools/call",
-		Params:  json.RawMessage(`{"name": "` + toolName + `", "arguments": ` + args + `}`),
+		Params:  json.RawMessage(`{"name": "` + mcpxec.ToolName(toolName) + `", "arguments": ` + args + `}`),
 	}
 	return mcpxec.HandleRequest(req)
 }
@@ -99,8 +100,8 @@ func TestToolsListSkipsDisabledTool(t *testing.T) {
 
 	resp := mcpxec.HandleRequest(&mcpxec.MCPRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
 	names := strings.Join(toolNames(t, resp), ",")
-	if names != "exec,edit_file" {
-		t.Errorf("a disabled tool must not be announced, expected exec and edit_file, got %q", names)
+	if want := strings.Join([]string{mcpxec.ToolName("exec"), mcpxec.ToolName("edit_file")}, ","); names != want {
+		t.Errorf("a disabled tool must not be announced, expected %s, got %q", want, names)
 	}
 }
 
@@ -176,8 +177,8 @@ func TestDisabledToolNeighboursStayReachable(t *testing.T) {
 
 	// the positive control: only the switched-off tool is affected
 	names := strings.Join(toolNames(t, mcpxec.HandleRequest(&mcpxec.MCPRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})), ",")
-	if names != "shell,edit_file" {
-		t.Errorf("the neighbours of a disabled tool must stay announced, got %q", names)
+	if want := strings.Join([]string{mcpxec.ToolName("shell"), mcpxec.ToolName("edit_file")}, ","); names != want {
+		t.Errorf("the neighbours of a disabled tool must stay announced, expected %s, got %q", want, names)
 	}
 
 	// the shell tool answers through its documented default, /bin/sh, which is not

@@ -39,14 +39,15 @@ func tempFile(t *testing.T, dir, content string) string {
 	return path
 }
 
-// callEditFile runs a full tools/call round trip for the edit_file tool.
+// callEditFile runs a full tools/call round trip for the edit_file tool — the request
+// carries the name the way the server announces it.
 func callEditFile(t *testing.T, args string) *mcpxec.MCPResponse {
 	t.Helper()
 	req := &mcpxec.MCPRequest{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "tools/call",
-		Params:  json.RawMessage(`{"name": "edit_file", "arguments": ` + args + `}`),
+		Params:  json.RawMessage(`{"name": "` + mcpxec.ToolName("edit_file") + `", "arguments": ` + args + `}`),
 	}
 	return mcpxec.HandleRequest(req)
 }
@@ -108,7 +109,7 @@ func TestEditFileToolInList(t *testing.T) {
 
 	var tool *mcpxec.Tool
 	for i, tl := range result.Tools {
-		if tl.Name == "edit_file" {
+		if tl.Name == mcpxec.ToolName("edit_file") {
 			tool = &result.Tools[i]
 		}
 	}

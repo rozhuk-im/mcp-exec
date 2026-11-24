@@ -168,7 +168,8 @@ max_file_size = 10485760
 ; Per-tool switches — the key is the tool name, the value is parsed like the
 ; other INI booleans (true/1/yes/on are on, anything else is off). A tool that
 ; is switched off is not announced through tools/list, and a direct call to it
-; is refused; a tool the section does not name keeps the default (enabled).
+; is refused; a tool the section does not name keeps the default (enabled). The
+; key is the plain tool name — tools/list announces <server name>.<tool>.
 exec = true
 shell = true
 edit_file = true
@@ -235,13 +236,16 @@ the server does on that host, and `version` is what `-ldflags -X main.version=` 
 
 #### Request Format
 
+The name in `params` is the announced name — `server name.tool`, the server name being
+what `initialize` reports (see above); a client takes it from `tools/list`.
+
 ```json
 {
   "jsonrpc": "2.0",
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "exec",
+    "name": "srv01.example.com.exec",
     "arguments": {
       "command": "ls",
       "args": ["-la"],
@@ -309,9 +313,15 @@ the value is parsed like the other INI booleans). A tool that is switched off is
 announced through `tools/list`, and a direct `tools/call` does not reach its handler
 either — it is refused the way an unknown tool is.
 
+A tool answers to the announced name — `server name.tool`, the server name being what
+`initialize` reports (see above). The `[tools]` keys and `MCP_EXEC_DISABLED_TOOLS` stay
+the plain tool names: what the operator writes does not depend on which machine the
+call lands on. Every tool description names the server it runs on; `name` below is
+that name.
+
 #### `exec` - Execute a command directly
 
-Execute a command with arguments.
+Execute a program directly with arguments, on `name`.
 
 **Parameters:**
 - `command` (required): Command to execute
@@ -338,7 +348,7 @@ JSON-RPC error `-32000` with the process error in `data`.
 
 #### `shell` - Execute through shell interpreter
 
-Execute a command through a shell.
+Execute a command through shell interpreter, on `name`.
 
 **Parameters:**
 - `command` (required): Shell command to execute
@@ -363,7 +373,7 @@ directory does not exist, so the process never started.
 
 Make line-based edits to a text file. Each edit replaces exact line sequences with new
 content. Returns a git-style diff showing the changes made. Only works within allowed
-directories.
+directories. It runs on `name`.
 
 **Parameters:**
 - `path` (required): the file to edit — absolute when `allowed_dirs` is set

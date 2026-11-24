@@ -493,6 +493,13 @@ func ServerName() string {
 	return randomName()
 }
 
+// ToolName is the name a tool is announced and called by: the server name as a prefix,
+// then the tool. The [tools] section keys stay the plain tool name — the operator writes
+// those, and they do not depend on which machine the config lands on.
+func ToolName(toolName string) string {
+	return fmt.Sprintf("%s.%s", ServerName(), toolName)
+}
+
 // randomName is RandomServerName, settled once, so that every answer of one running
 // server says the same thing however many handlers ask in parallel.
 var randomName = sync.OnceValue(RandomServerName)
@@ -898,8 +905,8 @@ func handleInitialize(req *MCPRequest) *MCPResponse {
 // defines is a function of its own.
 func execTool() Tool {
 	return Tool{
-		Name:        "exec",
-		Description: "Execute a program directly with arguments",
+		Name:        ToolName("exec"),
+		Description: fmt.Sprintf("Execute a program directly with arguments, on %s", ServerName()),
 		InputSchema: InputSchema{
 			Type: "object",
 			Properties: map[string]any{
@@ -934,8 +941,8 @@ func execTool() Tool {
 
 func shellTool() Tool {
 	return Tool{
-		Name:        "shell",
-		Description: "Execute a command through shell interpreter",
+		Name:        ToolName("shell"),
+		Description: fmt.Sprintf("Execute a command through shell interpreter, on %s", ServerName()),
 		InputSchema: InputSchema{
 			Type: "object",
 			Properties: map[string]any{
@@ -967,27 +974,32 @@ func shellTool() Tool {
 	}
 }
 
-// toolEntry pairs a tool definition with its handler. The registry below is the one
-// place where the server's tools live: the definition, what tools/list announces,
-// what tools/call dispatches to and the [tools] switches all read it.
+// toolEntry pairs a tool with its handler: the key is the [tools] name — what the
+// operator writes and what ToolEnabled reads — def builds the definition the server
+// announces, and the registry below is the one place where the server's tools live:
+// the definition, what tools/list announces, what tools/call dispatches to and the
+// switches all read it.
 type toolEntry struct {
-	def     Tool
+	key     string
+	def     func() Tool
 	handler func(json.RawMessage) (interface{}, error)
 }
 
-// toolRegistry lists every tool the server defines, in announcement order.
+// toolRegistry lists every tool the server defines, in announcement order. The
+// definitions are built per request, not once at load: an announced name carries the
+// server name, and that is not known until the config has been read.
 var toolRegistry = []toolEntry{
-	{execTool(), executeCommand},
-	{shellTool(), executeShell},
-	{editFileTool(), ExecuteEditFile},
+	{"exec", execTool, executeCommand},
+	{"shell", shellTool, executeShell},
+	{"edit_file", editFileTool, ExecuteEditFile},
 }
 
-// lookupTool finds a tool in the registry by name. ok=false means the name is not a
-// tool of this server at all — the [tools] switches apply to defined tools only, an
-// undefined name stays the plain unknown tool.
+// lookupTool finds a tool in the registry by the name it announces. ok=false means the
+// name is not a tool of this server at all — the [tools] switches apply to defined tools
+// only, an undefined name stays the plain unknown tool.
 func lookupTool(name string) (toolEntry, bool) {
 	for _, entry := range toolRegistry {
-		if entry.def.Name == name {
+		if ToolName(entry.key) == name {
 			return entry, true
 		}
 	}
@@ -1011,8 +1023,8 @@ func handleListTools(req *MCPRequest) *MCPResponse {
 	// off is not in the list, and tools/call will refuse it too (see handleToolsCall)
 	tools := ListToolsResponse{Tools: []Tool{}}
 	for _, entry := range toolRegistry {
-		if ToolEnabled(entry.def.Name) {
-			tools.Tools = append(tools.Tools, entry.def)
+		if ToolEnabled(entry.key) {
+			tools.Tools = append(tools.Tools, entry.def())
 		}
 	}
 
@@ -1039,13 +1051,15 @@ func handleToolsCall(req *MCPRequest) *MCPResponse {
 	if !defined {
 		return makeError(req.ID, -32602, "Invalid params", "Unknown tool: "+params.Name)
 	}
-	if !ToolEnabled(params.Name) {
+	// the switch is checked against the [tools] key, not the announced name — the key is
+	// what the operator writes, and it does not carry the server prefix
+	if !ToolEnabled(entry.key) {
 		return makeError(req.ID, -32602, "Invalid params", "Tool disabled: "+params.Name)
 	}
 
 	result, execErr := entry.handler(params.Arguments)
 	if execErr != nil {
-		if entry.def.Name == "edit_file" {
+		if entry.key == "edit_file" {
 			// the file tool follows the standard: bad input is -32602, a failure to
 			// do the job is a tool result with isError:true (see toolError)
 			return toolError(req.ID, execErr)

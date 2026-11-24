@@ -62,7 +62,7 @@ func TestHandleListTools(t *testing.T) {
 	// Check for exec tool
 	foundExec := false
 	for _, tool := range result.Tools {
-		if tool.Name == "exec" {
+		if tool.Name == mcpxec.ToolName("exec") {
 			foundExec = true
 			break
 		}
@@ -91,7 +91,7 @@ func TestHandleToolsCallExec(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "tools/call",
-		Params:  json.RawMessage(`{"name": "exec", "arguments": {"command": "echo", "args": ["hello"]}}`),
+		Params:  json.RawMessage(`{"name": "` + mcpxec.ToolName("exec") + `", "arguments": {"command": "echo", "args": ["hello"]}}`),
 	}
 
 	resp := mcpxec.HandleRequest(req)
@@ -363,7 +363,7 @@ func TestStderrReturnedOnSuccessfulRun(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "tools/call",
-		Params:  json.RawMessage(`{"name": "shell", "arguments": {"command": "echo out; echo oops >&2", "timeout": 30}}`),
+		Params:  json.RawMessage(`{"name": "` + mcpxec.ToolName("shell") + `", "arguments": {"command": "echo out; echo oops >&2", "timeout": 30}}`),
 	}
 
 	resp := mcpxec.HandleRequest(req)
@@ -444,7 +444,7 @@ func callExecTool(t *testing.T, tool, args string) *mcpxec.MCPResponse {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "tools/call",
-		Params:  json.RawMessage(`{"name": "` + tool + `", "arguments": ` + args + `}`),
+		Params:  json.RawMessage(`{"name": "` + mcpxec.ToolName(tool) + `", "arguments": ` + args + `}`),
 	}
 	return mcpxec.HandleRequest(req)
 }
@@ -559,7 +559,7 @@ func TestHandleMCPExecStartFailureOverHTTP(t *testing.T) {
 	mcpxec.Cfg.MaxRespSize = 10485760
 	defer func() { mcpxec.Cfg = old }()
 
-	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exec","arguments":{"command":"mcp-exec-no-such-program"}}}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + mcpxec.ToolName("exec") + `","arguments":{"command":"mcp-exec-no-such-program"}}}`
 	rec := httptest.NewRecorder()
 	mcpxec.HandleMCP(rec, httptest.NewRequest("POST", "/mcp", strings.NewReader(body)))
 

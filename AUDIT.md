@@ -7,7 +7,8 @@ added 2026-11-18 (see section 11); stdout/stderr are always returned — 2026-11
 `edit_file` added 2026-11-21 (see section 13); a process start failure is returned
 through MCP — 2026-11-22 (see section 14); per-tool switches, the `[tools]` section
 — 2026-11-22 (see section 15); `initialize` reports the host it runs on — 2026-11-24
-(see section 16)
+(see section 16); tools are announced under the server name — 2026-11-24
+(see section 17)
 
 Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/platform_linux.go`,
 `src/platform_darwin.go`, `src/platform_windows.go`, `src/platform_other.go`,
@@ -15,7 +16,7 @@ Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/pla
 `cmd/mcp-exec/main.go`, `tests/main_test.go`, `tests/edit_file_test.go`, `tests/platform_test.go`,
 `tests/platform_bsd_test.go`, `tests/platform_linux_test.go`,
 `tests/platform_darwin_test.go`, `tests/platform_windows_test.go`,
-`tests/platform_unix_test.go`, `tests/tools_config_test.go`, `tests/server_info_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
+`tests/platform_unix_test.go`, `tests/tools_config_test.go`, `tests/server_info_test.go`, `tests/tool_names_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
 `mcp-exec.ini`, `mcp-exec.default`, `mcp-exec.service`, `docker/Dockerfile`,
 `docker/docker-compose.yml`, `docker/.env.example`, `.gitignore`.
 
@@ -580,3 +581,70 @@ variable. Checked end-to-end through the HTTP transport: the hostname,
 and the startup log shows the same value; `bad_name`, `MCP_EXEC_NAME=bad_name`,
 `-leading` and `host.example.com.` each stop the startup, the message naming the setting
 it refused, exit code 1.
+
+---
+
+## 17. Tools are announced under the server name (2026-11-24)
+
+Every tool is announced — and called — as `server name.tool`:
+`srv01.example.com.exec`, `srv01.example.com.shell`,
+`srv01.example.com.edit_file`, the server name being the value section 16 resolves,
+and every description now names the server it runs on — the plain name, the bracketed
+`MCP Exec Server (name)` spelling staying where it belongs: the title of the initialize
+answer. The point is the same as it was for `initialize`: a client with
+several of these servers in front of it sees which one a name belongs to without
+reading anybody's config.
+
+The `[tools]` keys, and `MCP_EXEC_DISABLED_TOOLS`, stay the plain tool name — those are
+what the operator writes, and they must mean the same thing on every machine. So one
+tool now has two spellings, and the registry is where both are resolved: an entry
+carries the key the switch reads, the definition function that builds what the server
+announces, and the handler; `lookupTool` matches the announced name, `ToolEnabled` reads
+the key. The switch check in `handleToolsCall` is against the key — checked against the
+announced name it would have defaulted silently to enabled, and a tool the operator
+switched off would have run for the very client that sent the name the server itself
+announced.
+
+The registry used to hold finished definitions, built once when the package loaded, and
+that worked while the names in them were literals. A definition cannot be settled before
+the config has been read now, so `toolEntry` carries the key, the definition function and
+the handler, and the definitions are built per request. `ToolName()` joined the exported
+helpers next to `ServerName()`.
+
+A call by the bare tool name is the unknown tool now — the prefix is part of the name.
+That is a deliberate change for a client that used to send `exec`; `tools/list` is where
+a client reads the names, which is what this server has always expected.
+
+Changed:
+
+- `src/server.go` — `ToolName()` next to `ServerName()`, `toolEntry` as key + definition
+  function + handler, `toolRegistry` built on the keys, `lookupTool` matching the
+  announced name, `ToolEnabled(entry.key)` in `handleToolsCall` (the file-tool branch
+  reads the key too, as it always did), `execTool()`/`shellTool()` spelling the new name
+  and description, `handleInitialize` formatting the title from the resolved name;
+- `src/edit_file.go` — `editFileTool()` the same way;
+- `tests/tool_names_test.go` — four new tests: the announcement carries the prefix and
+  the definitions still come through whole (schema and hints, since they are built per
+  request now), `tools/call` dispatches on the announced name, the bare tool name is
+  the unknown tool, a tool switched off in the section is refused when called by its
+  announced name — the check described above;
+- the tests that call tools by name — `tests/main_test.go`, `tests/edit_file_test.go`,
+  `tests/tools_config_test.go` — build the name through `ToolName()` now, so a request
+  `ToolName()` now, so a request carries what the server announces, and the two
+  assertions that compared announced lists against literals do the same; the `[tools]`
+  switch tests keep using the plain keys, which is what the section is written with;
+- `README.md` — the `Request Format` example, the `Available Tools` intro, the three
+  tool descriptions and the `[tools]` comment; `mcp-exec.ini`, `mcp-exec.default` — the
+  same comments, the settings left at their defaults.
+
+Build and tests were run on this machine (go1.27.4, freebsd/amd64): `go build ./...`,
+`go vet ./...` — no remarks; `go test ./...` — all tests green (the suite is 62 tests
+now); `gofmt -l` — still only `src/server.go`, the known Config-comment change of
+section 13, its diff is unchanged and the new code is formatted. Cross-target
+`go build` — windows/amd64, darwin/arm64, linux/amd64, freebsd/arm64 — all compile.
+Checked end-to-end over HTTP with `[server] name = srv01.example.com`:
+`tools/list` announces the three prefixed names with descriptions naming the server,
+`tools/call` for `srv01.example.com.shell` runs the shell, the bare `exec` comes back
+as the unknown tool, `[tools] exec = off` refuses `srv01.example.com.exec` with
+`Tool disabled` while `srv01.example.com.shell` keeps answering, and with the name
+empty the prefix is the hostname of the machine.
