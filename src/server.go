@@ -125,8 +125,9 @@ var Cfg Config
 
 var (
 	logger       *log.Logger
-	syslogWriter io.WriteCloser
-	mu           sync.RWMutex // guards logger/syslogWriter
+	syslogWriter io.WriteCloser // the syslog connection, while the syslog mode is in charge
+	logCloser    io.WriteCloser // what the last setup opened, syslog or the log file
+	mu           sync.RWMutex   // guards logger/syslogWriter/logCloser
 	appVersion   = "1.0.0"
 )
 
@@ -529,6 +530,12 @@ func SetupLogger() error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	// what the previous setup opened, if anything; closed once the new writer is
+	// in place, so reconfiguring the logger does not leave a handle behind — on
+	// Windows a handle left behind is not cosmetic: the log file cannot be removed
+	// while it is open
+	old := logCloser
+
 	switch Cfg.LogMode {
 	case "syslog":
 		tag := Cfg.SyslogTag
@@ -549,6 +556,7 @@ func SetupLogger() error {
 			return fmt.Errorf("failed to connect to syslog: %w", err)
 		}
 		logger = log.New(syslogWriter, "", 0)
+		logCloser = syslogWriter
 	case "file":
 		if Cfg.LogFile == "" {
 			Cfg.LogFile = "/var/log/mcp-exec.log"
@@ -558,8 +566,14 @@ func SetupLogger() error {
 			return fmt.Errorf("failed to open log file: %w", err)
 		}
 		logger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
+		logCloser = f
 	default: // stdout
 		logger = log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+		logCloser = nil // stdout is not ours to close
+	}
+
+	if old != nil && old != logCloser {
+		old.Close()
 	}
 	return nil
 }
@@ -576,10 +590,13 @@ func logPrintf(format string, v ...interface{}) {
 func closeLogging() {
 	mu.Lock()
 	defer mu.Unlock()
-	if syslogWriter != nil {
-		syslogWriter.Close()
-		syslogWriter = nil
+	// whatever the last setup opened — the syslog connection or the log file; the
+	// file handle was not closed here before, so it outlived the shutdown
+	if logCloser != nil {
+		logCloser.Close()
+		logCloser = nil
 	}
+	syslogWriter = nil
 }
 
 func daemonize() error {

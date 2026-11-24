@@ -329,14 +329,16 @@ func insideRoot(root, p string) bool {
 
 // displayPath is the path the diff header shows — relative to the allowed root
 // when there is one (as the reference server renders it, so the absolute layout
-// of the server host is not leaked into the reply), otherwise the path as resolved.
+// of the server host is not leaked into the reply), otherwise the path as
+// resolved. Both spell the path the way the reply says it: the slash form of
+// git, which on Windows is not the way the OS spells it.
 func displayPath(abs string) string {
 	for _, root := range fileRoots() {
 		if rel, err := filepath.Rel(root, abs); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return filepath.ToSlash(rel)
 		}
 	}
-	return abs
+	return filepath.ToSlash(abs)
 }
 
 // readTextFile reads a file for the file tool, refusing anything that is not a
