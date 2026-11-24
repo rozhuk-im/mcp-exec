@@ -3,6 +3,7 @@ package mcpxec_test
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -128,7 +129,10 @@ func TestDisabledToolCallIsRefused(t *testing.T) {
 
 	// the handler must not run: touch would have created the marker file
 	marker := filepath.Join(t.TempDir(), "must_not_exist")
-	resp := callTool(t, "exec", `{"command":"touch","args":["`+marker+`"]}`)
+	// the path goes into the JSON in the slash form the rest of the suite uses — a
+	// native Windows path would put raw backslashes into a JSON string, and JSON
+	// would read them as escape sequences
+	resp := callTool(t, "exec", `{"command":"touch","args":["`+filepath.ToSlash(marker)+`"]}`)
 
 	if resp.Error == nil {
 		t.Fatalf("a disabled tool must be refused, got result %#v", resp.Result)
@@ -174,6 +178,12 @@ func TestDisabledToolNeighboursStayReachable(t *testing.T) {
 	names := strings.Join(toolNames(t, mcpxec.HandleRequest(&mcpxec.MCPRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})), ",")
 	if names != "shell,edit_file" {
 		t.Errorf("the neighbours of a disabled tool must stay announced, got %q", names)
+	}
+
+	// the shell tool answers through its documented default, /bin/sh, which is not
+	// everywhere — the announcement above is what is checked on every platform
+	if _, err := exec.LookPath("/bin/sh"); err != nil {
+		t.Skip("/bin/sh is not available on this platform")
 	}
 
 	resp := callTool(t, "shell", `{"command":"echo reachable","timeout":30}`)

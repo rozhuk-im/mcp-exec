@@ -182,10 +182,11 @@ func TestResolveDir(t *testing.T) {
 	oldChroot := mcpxec.Cfg.ChrootPath
 	defer func() { mcpxec.Cfg.ChrootPath = oldChroot }()
 
-	// With chroot, ".." must not escape the new root
+	// With chroot, ".." must not escape the new root; the result is spelled the way
+	// the OS spells it, which is the same string as /etc everywhere except Windows
 	mcpxec.Cfg.ChrootPath = "/chroot"
-	if got := mcpxec.ResolveDir("../etc"); got != "/etc" {
-		t.Errorf("chroot mode: expected /etc, got %s", got)
+	if got := mcpxec.ResolveDir("../etc"); got != filepath.Clean("/etc") {
+		t.Errorf("chroot mode: expected %s, got %s", filepath.Clean("/etc"), got)
 	}
 
 	// Without chroot, the path is a host path as-is
