@@ -6,7 +6,8 @@ BSD support added 2026-11-18 (see section 10); auto-detection of the build platf
 added 2026-11-18 (see section 11); stdout/stderr are always returned — 2026-11-20 (see section 12);
 `edit_file` added 2026-11-21 (see section 13); a process start failure is returned
 through MCP — 2026-11-22 (see section 14); per-tool switches, the `[tools]` section
-— 2026-11-22 (see section 15)
+— 2026-11-22 (see section 15); `initialize` reports the host it runs on — 2026-11-24
+(see section 16)
 
 Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/platform_linux.go`,
 `src/platform_darwin.go`, `src/platform_windows.go`, `src/platform_other.go`,
@@ -14,7 +15,7 @@ Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/pla
 `cmd/mcp-exec/main.go`, `tests/main_test.go`, `tests/edit_file_test.go`, `tests/platform_test.go`,
 `tests/platform_bsd_test.go`, `tests/platform_linux_test.go`,
 `tests/platform_darwin_test.go`, `tests/platform_windows_test.go`,
-`tests/platform_unix_test.go`, `tests/tools_config_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
+`tests/platform_unix_test.go`, `tests/tools_config_test.go`, `tests/server_info_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
 `mcp-exec.ini`, `mcp-exec.default`, `mcp-exec.service`, `docker/Dockerfile`,
 `docker/docker-compose.yml`, `docker/.env.example`, `.gitignore`.
 
@@ -500,3 +501,82 @@ Build and tests were run on this machine (go1.27.4, freebsd/amd64): `go build ./
 and the new code is formatted. Checked end-to-end through the stdio transport with
 `shell` switched off: `tools/list` announces `exec` and `edit_file`, a direct call to
 `shell` is refused, `exec` runs as before.
+
+---
+
+## 16. `initialize` reports the host it runs on (2026-11-24)
+
+`serverInfo` grew two fields, and its `name` stopped being a literal: `name` is now
+`[server] name`, the hostname of the machine when that is empty; the `title` is
+`MCP Exec Server (name)`; the `description` says what the server does and names the
+host it runs on. All three carry one value, and it is the value the operator set —
+`MCP_EXEC_NAME` is the env override for the section, in the same precedence order the
+other options use (`--config` flag > env > file > defaults).
+
+The name is validated as it is read, in `setConfigValue` for the section and in
+`LoadConfig` for the env var: it must be a DNS name — letters, digits and hyphens
+(DNS is case-insensitive, upper case is taken as it comes), dot-separated labels, a
+label never starting or ending with a hyphen, 63 characters per label, 255 in all. A
+trailing dot — the root label of an FQDN — is out, RFC 1123 §2.1 does not allow it in
+a host name, and so is the underscore: `hostname(1)` on the BSDs takes it, DNS does
+not. Digits at the start of a label are in — the same RFC, §6.1.3, admits the
+all-numeric names that were already in use. `setConfigValue` learned to refuse a value
+for the first time, it returns an error now and `LoadConfig` passes it on, so a name
+the operator mis-typed stops the startup instead of reaching a client as a string
+nothing can use; this is the first setting in the project whose value can stop the
+startup, and the numeric keys keep their long-standing "unparseable keeps the default"
+behaviour untouched.
+
+A hostname that cannot be read gets a generated name rather than a fixed one: the name
+of the service and 8 characters from `crypto/rand`, settled once so that a machine
+without a hostname still answers one name to every client, and several such servers
+tell themselves apart. A hostname that is read is reported as it is, validation not
+applied to it — the machine is called what it is called, and a BSD box whose hostname
+has an underscore is not a startup error.
+
+`title` and `description` are the fields a client shows a human; a client that only
+knows `name` and `version` ignores them, so the answer stays valid for it. The name
+itself is no longer a fixed string, and that is the point — a machine running several
+of these servers, or one whose real name is worth showing, can now say so in the
+answer. It also means anything keyed on the name sees a different server on a
+different machine, which is exactly what "the name is the machine" implies.
+
+Nothing changes for what already reported the right thing: the docker container's
+hostname is `mcp-exec` (`container_name` in `docker/docker-compose.yml`), so it answers
+exactly as it did before.
+
+Changed:
+
+- `src/server.go` — `Name string` in `Config` (its own line, so the gofmt situation of
+  section 13 is unchanged), `setConfigValue` returning an error and the `name` case
+  using it, the `MCP_EXEC_NAME` override in `LoadConfig` validating the same way,
+  `ValidDNSName`, `ServerName()` next to `ParseBool` — the section value, the hostname,
+  or `RandomServerName()` behind a `sync.OnceValue` so the answer does not change from
+  request to request — `handleInitialize` resolving it once so all three fields agree,
+  and the startup log line;
+- `tests/server_info_test.go` — eight tests: the name from the section, the fallback to
+  the hostname, the env override beating the section, `ValidDNSName` over accepted and
+  refused shapes, `RandomServerName` (a DNS name, two generations not the same name),
+  the section refusing an underscore, the env override refusing a trailing hyphen, and
+  `Run` refusing to start on both — `LoadConfig` is the first thing `Run` does, so the
+  test returns before the daemon, the logger and any transport listening; each name
+  test reads the answer back through the marshaled `initialize` response, the way a
+  client does;
+- `README.md` — `name` in the `[server]` example, the env table row, and what
+  `initialize` reports, under `Supported methods`;
+- `mcp-exec.ini`, `mcp-exec.default` — the new key and the new env var, both left at
+  their defaults.
+
+Build and tests were run on this machine (go1.27.4, freebsd/amd64): `go build ./...`,
+`go vet ./...` — no remarks; `go test ./...` — all tests green; `gofmt -l` — still only
+`src/server.go`, the known Config-comment change from section 13, its diff is unchanged
+and the new code is formatted. `go vet` cross-target for windows/amd64, darwin/arm64 and
+linux/amd64 — no remarks; `crypto/rand` is stdlib and `sync.OnceValue` is exactly the
+1.21 floor `go.mod` asks for. `-race` cannot run on this box, which has no cgo toolchain
+— it is why the generated name is settled behind `sync.OnceValue` and not in a plain
+variable. Checked end-to-end through the HTTP transport: the hostname,
+`[server] name = srv01.example.com`, `Srv01.Example.COM` taken as it comes,
+`MCP_EXEC_NAME` beating the section — name, title and description agree in every answer
+and the startup log shows the same value; `bad_name`, `MCP_EXEC_NAME=bad_name`,
+`-leading` and `host.example.com.` each stop the startup, the message naming the setting
+it refused, exit code 1.

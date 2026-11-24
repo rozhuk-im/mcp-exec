@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
@@ -34,6 +35,7 @@ type Config struct {
 	SyslogTag       string   // [logging] syslog_tag
 	SyslogNetwork   string   // [logging] syslog_network — tcp, udp, unix
 	SyslogAddress   string   // [logging] syslog_address
+	Name            string   // [server] name — the name the initialize answer reports; a DNS name; empty = the hostname
 	Addr            string   // [server] addr — for transport=domain this is the unix socket path
 	Port            int      // [server] port
 	AuthKeys        string   // [server] auth_keys — comma-separated list
@@ -173,6 +175,7 @@ func Run(version, configPath string) error {
 
 	logPrintf("mcp-exec %s starting...", appVersion)
 	logPrintf("Transport: %s", Cfg.Transport)
+	logPrintf("Server name: %s", ServerName())
 
 	// Graceful shutdown on SIGINT/SIGTERM (SIGHUP additionally on unix)
 	ctx, stop := signal.NotifyContext(context.Background(), PlatformSignals()...)
@@ -384,7 +387,9 @@ func LoadConfig(explicitPath string) error {
 			// Remove quotes if present
 			value = strings.Trim(value, "\"'")
 
-			setConfigValue(currentSection, key, value)
+			if err := setConfigValue(currentSection, key, value); err != nil {
+				return err
+			}
 		}
 
 		if err := scanner.Err(); err != nil {
@@ -393,6 +398,12 @@ func LoadConfig(explicitPath string) error {
 	}
 
 	// Override with environment variables
+	if name := os.Getenv("MCP_EXEC_NAME"); name != "" {
+		if !ValidDNSName(name) {
+			return fmt.Errorf("MCP_EXEC_NAME %q is not a DNS name — letters, digits, hyphens, dot-separated labels, no hyphen at either end of a label, 63 characters per label, 255 in all", name)
+		}
+		Cfg.Name = name
+	}
 	if addr := os.Getenv("MCP_EXEC_ADDR"); addr != "" {
 		Cfg.Addr = addr
 	}
@@ -468,10 +479,93 @@ func ParseBool(s string) bool {
 	return s == "true" || s == "1" || s == "yes" || s == "on"
 }
 
-func setConfigValue(section, key, value string) {
+// ServerName is the name the initialize answer reports: [server] name as LoadConfig
+// read and validated it, the hostname of this machine when it is empty, and a
+// generated DNS label when the hostname cannot be read.
+func ServerName() string {
+	if Cfg.Name != "" {
+		return Cfg.Name
+	}
+	if host, err := os.Hostname(); err == nil && host != "" {
+		return host
+	}
+	// settled once, so that several handlers asking get the same answer
+	return randomName()
+}
+
+// randomName is RandomServerName, settled once, so that every answer of one running
+// server says the same thing however many handlers ask in parallel.
+var randomName = sync.OnceValue(RandomServerName)
+
+// RandomServerName generates a name for the case the hostname cannot be read: the
+// name of the service and 8 characters from crypto/rand, so that servers sharing a
+// machine without a hostname still tell themselves apart. crypto/rand does not fail
+// on the platforms this server supports; should it ever do, the name this server
+// went by before the name became the host is the last-resort answer.
+func RandomServerName() string {
+	// the DNS alphabet without the hyphen, so the generated part cannot end on one
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "mcp-exec"
+	}
+
+	suffix := make([]byte, len(b))
+	for i, c := range b {
+		suffix[i] = alphabet[c%byte(len(alphabet))]
+	}
+	return "mcp-exec-" + string(suffix)
+}
+
+// ValidDNSName reports whether s is a name DNS can carry — the shape [server] name
+// and MCP_EXEC_NAME must keep: dot-separated labels of letters, digits and hyphens,
+// each label 63 characters or less, never starting or ending with a hyphen, 255
+// characters in all. DNS is case-insensitive, so upper case is taken as it comes. A
+// trailing dot is the root label of an FQDN, and RFC 1123 keeps it out of host
+// names, so it is out here too — and so is the underscore: the BSD hostname command
+// takes it, DNS does not. An empty string is not a name, and is refused here; the
+// callers settle the empty case themselves.
+func ValidDNSName(s string) bool {
+	if s == "" || len(s) > 255 || strings.HasSuffix(s, ".") {
+		return false
+	}
+
+	for _, label := range strings.Split(s, ".") {
+		if label == "" || len(label) > 63 {
+			return false // two dots in a row, or a label longer than DNS
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' {
+				continue
+			}
+			return false
+		}
+		// RFC 1123 §6.1.3 admits digits at the start of a label — the all-numeric
+		// names it lets through were already in use — but a hyphen belongs inside a
+		// label, not at either end of it
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// setConfigValue applies one key of one section. A value that cannot be used is
+// refused, not dropped: a setting the operator wrote should not fail silently. The
+// numeric keys keep their long-standing "unparseable keeps the default" behaviour,
+// [server] name is the first key with a rule of its own.
+func setConfigValue(section, key, value string) error {
 	switch section {
 	case "", "server":
 		switch key {
+		case "name":
+			if value != "" && !ValidDNSName(value) {
+				return fmt.Errorf("[server] name %q is not a DNS name — letters, digits, hyphens, dot-separated labels, no hyphen at either end of a label, 63 characters per label, 255 in all", value)
+			}
+			Cfg.Name = value
 		case "addr":
 			Cfg.Addr = value
 		case "port":
@@ -523,6 +617,8 @@ func setConfigValue(section, key, value string) {
 		}
 		Cfg.Tools[key] = ParseBool(value)
 	}
+
+	return nil
 }
 
 // SetupLogger switches logging to the configured mode (stdout, file, syslog).
@@ -773,6 +869,10 @@ func HandleRequest(req *MCPRequest) *MCPResponse {
 }
 
 func handleInitialize(req *MCPRequest) *MCPResponse {
+	// [server] name, the hostname when it is empty, a generated label when that
+	// cannot be read — the title and the description carry the same value
+	name := ServerName()
+
 	return &MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -784,8 +884,10 @@ func handleInitialize(req *MCPRequest) *MCPResponse {
 				},
 			},
 			"serverInfo": map[string]interface{}{
-				"name":    "mcp-exec",
-				"version": appVersion,
+				"name":        name,
+				"title":       fmt.Sprintf("MCP Exec Server (%s)", name),
+				"version":     appVersion,
+				"description": fmt.Sprintf("Execute programs and shell commands, and edit text files, on host %s", name),
 			},
 		},
 	}

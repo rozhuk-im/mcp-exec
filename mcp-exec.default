@@ -5,6 +5,9 @@
 
 # Server configuration
 # For transport=domain, MCP_EXEC_ADDR is the unix socket path (port is ignored)
+# MCP_EXEC_NAME is what initialize reports as the server name (the title and the
+# description carry it) — a DNS name: letters, digits and hyphens, labels; an
+# invalid value stops the startup; empty = the hostname of this machine
 MCP_EXEC_ADDR=0.0.0.0
 MCP_EXEC_PORT=8080
 MCP_EXEC_TRANSPORT=http

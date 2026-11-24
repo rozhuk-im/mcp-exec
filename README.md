@@ -101,6 +101,13 @@ Create a `mcp-exec.ini` file with the following sections:
 
 ```ini
 [server]
+; Server name reported by initialize: as the name, in the title
+; "MCP Exec Server (name)" and in the description as the host it runs on.
+; A DNS name — letters, digits and hyphens, dot-separated labels, no hyphen at
+; either end of a label; an invalid value stops the startup. Empty = the hostname
+; of this machine, or a generated label when the hostname cannot be read.
+name =
+
 ; Network address to bind to (empty = all interfaces)
 ; For transport=domain this is the Unix socket path, e.g. /tmp/mcp-exec.sock
 addr = 0.0.0.0
@@ -183,6 +190,7 @@ All configuration options can be overridden via environment variables
 | Variable | Description |
 |----------|-------------|
 | `MCP_EXEC_CONFIG` | Path to configuration file (default: `mcp-exec.ini`) |
+| `MCP_EXEC_NAME` | Server name reported by `initialize` — a DNS name (letters, digits, hyphens, labels); empty = the hostname |
 | `MCP_EXEC_ADDR` | Network address; for `domain` transport — unix socket path |
 | `MCP_EXEC_PORT` | Port to listen on |
 | `MCP_EXEC_TRANSPORT` | Transport type: `http`, `https`, `domain`, `stdio` |
@@ -218,6 +226,12 @@ The server accepts JSON-RPC 2.0 requests at the `/mcp` endpoint.
 
 Supported methods: `initialize`, `notifications/initialized`, `notifications/cancelled`,
 `ping`, `tools/list`, `tools/call`, `resources/list`, `prompts/list` (empty lists).
+
+`initialize` reports the server as `{"name": ..., "title": ..., "version": ..., "description": ...}`:
+`name` is `[server] name` (`MCP_EXEC_NAME`), the hostname of this machine when it is empty, a
+generated DNS label when the hostname cannot be read — and an invalid name from the file or the
+env var stops the startup. The `title` is `MCP Exec Server (name)`, the `description` says what
+the server does on that host, and `version` is what `-ldflags -X main.version=` stamped.
 
 #### Request Format
 
