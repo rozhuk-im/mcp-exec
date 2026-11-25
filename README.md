@@ -17,6 +17,9 @@ Support the author
 
 ## Features
 
+- **One LLM, several servers**: a single LLM model can use several `mcp-exec`
+  instances at the same time; every tool is announced — and called — under the
+  server name (`name.tool`), so a client sees which instance a call belongs to
 - **Multiple Transport Modes**: HTTP, HTTPS, Unix domain socket, or stdio
 - **Flexible Configuration**: INI format configuration file with environment variable
   overrides and a `--config` command-line flag (precedence: flag > env > file > defaults)
