@@ -29,22 +29,22 @@ import (
 // Config represents the application configuration
 // (parsed by the manual INI reader in setConfigValue, not by struct tags)
 type Config struct {
-	Daemon          bool     // [server] daemon
-	LogMode         string   // [logging] mode — file, syslog, stdout
-	LogFile         string   // [logging] file
-	SyslogTag       string   // [logging] syslog_tag
-	SyslogNetwork   string   // [logging] syslog_network — tcp, udp, unix
-	SyslogAddress   string   // [logging] syslog_address
-	Name            string   // [server] name — the name the initialize answer reports; a DNS name; empty = the hostname
-	Addr            string   // [server] addr — for transport=domain this is the unix socket path
-	Port            int      // [server] port
-	AuthKeys        string   // [server] auth_keys — comma-separated list
-	Transport       string   // [server] transport — https, http, domain, stdio
-	MaxReqSize      int64    // [server] max_request_size
-	MaxRespSize     int64    // [server] max_response_size
-	ChrootPath      string   // [security] chroot_path — Linux and the BSDs, requires privileges
-	AllowedDirs     []string // [security] allowed_dirs — roots the file tool (edit_file) is confined to, comma-separated
-	MaxFileSize     int64    // [security] max_file_size — the largest file a file tool will read (default: DefaultMaxFileSize)
+	Daemon        bool     // [server] daemon
+	LogMode       string   // [logging] mode — file, syslog, stdout
+	LogFile       string   // [logging] file
+	SyslogTag     string   // [logging] syslog_tag
+	SyslogNetwork string   // [logging] syslog_network — tcp, udp, unix
+	SyslogAddress string   // [logging] syslog_address
+	Name          string   // [server] name — the name the initialize answer reports; a DNS name; empty = the hostname
+	Addr          string   // [server] addr — for transport=domain this is the unix socket path
+	Port          int      // [server] port
+	AuthKeys      string   // [server] auth_keys — comma-separated list
+	Transport     string   // [server] transport — https, http, domain, stdio
+	MaxReqSize    int64    // [server] max_request_size
+	MaxRespSize   int64    // [server] max_response_size
+	ChrootPath    string   // [security] chroot_path — Linux and the BSDs, requires privileges
+	AllowedDirs   []string // [security] allowed_dirs — roots the file tool (edit_file) is confined to, comma-separated
+	MaxFileSize   int64    // [security] max_file_size — the largest file a file tool will read (default: DefaultMaxFileSize)
 
 	Tools map[string]bool // [tools] per-tool switches — <tool name> = on/off; a tool the section does not name keeps the default (enabled)
 }
