@@ -82,9 +82,13 @@ func toolHints(readOnly, destructive, idempotent, openWorld bool) *ToolAnnotatio
 }
 
 // editFileTool is the tool definition, worded the way the standard tool is worded.
+// The key is the [tools] name, the argument ToolName builds the announced name from,
+// and the title the tool reports.
 func editFileTool() Tool {
+	key := "edit_file"
 	return Tool{
-		Name:        ToolName("edit_file"),
+		Name:        ToolName(key),
+		Title:       key,
 		Description: fmt.Sprintf("Make line-based edits to a text file. Each edit replaces exact line sequences with new content. Returns a git-style diff showing the changes made. Only works within allowed directories. It runs on %s.", ServerName()),
 		InputSchema: InputSchema{
 			Type: "object",

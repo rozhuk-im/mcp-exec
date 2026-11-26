@@ -7,8 +7,9 @@ added 2026-11-18 (see section 11); stdout/stderr are always returned — 2026-11
 `edit_file` added 2026-11-21 (see section 13); a process start failure is returned
 through MCP — 2026-11-22 (see section 14); per-tool switches, the `[tools]` section
 — 2026-11-22 (see section 15); `initialize` reports the host it runs on — 2026-11-24
-(see section 16); tools are announced under the server name — 2026-11-24
-(see section 17)
+(see section 16); tools are announced under the server name — 2026-11-24 (see
+section 17); tool names in the tool alphabet, and the titles — 2026-11-26
+(see section 18)
 
 Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/platform_linux.go`,
 `src/platform_darwin.go`, `src/platform_windows.go`, `src/platform_other.go`,
@@ -648,3 +649,69 @@ Checked end-to-end over HTTP with `[server] name = srv01.example.com`:
 as the unknown tool, `[tools] exec = off` refuses `srv01.example.com.exec` with
 `Tool disabled` while `srv01.example.com.shell` keeps answering, and with the name
 empty the prefix is the hostname of the machine.
+
+---
+
+## 18. Tool names in the tool alphabet, and the titles (2026-11-26)
+
+Section 17 joined the server name and the tool with a dot, `srv01.example.com.exec`. A
+tool name is kept inside an alphabet of letters, digits, hyphens and underscores, and
+inside 64 characters, and the dot is not in that alphabet — so `ToolName()` writes the
+server name with its dots read as underscores and joins the two parts with a hyphen:
+`srv01_example_com-exec`, `srv01_example_com-shell`, `srv01_example_com-edit_file`. When
+the whole name does not fit, the server name gives up its end: `maxToolNameLen` is the
+limit, the separator and the tool are paid for first, and the tool part always survives
+the trim whole, because it is what the client is asking for. `lookupTool` matches what
+`ToolName()` builds, so a trimmed name is a name of this server like any other —
+`tools/list` announces it and `tools/call` answers it.
+
+The two spellings the project already kept are untouched: the `[tools]` keys, and
+`MCP_EXEC_DISABLED_TOOLS`, stay the plain tool name, and the descriptions name the
+server by the DNS spelling it is given, dots and all — descriptions are prose, not
+names, and the alphabet does not reach them.
+
+Every tool now reports a `title` — the plain tool name, `exec`, `shell`, `edit_file`:
+the same string `ToolName()` is given as its argument, so the two cannot drift apart,
+which is why each definition reads its key from a local. `title` is the short spelling
+a client shows a human, and the one the README headings use; `name` is the one a call
+carries. `ToolAnnotations.title` — the field the `2025-06-18` schema puts inside the
+annotations block — stays as it always was: unset, the protocol default, `toolHints`
+spelling out the four hints and nothing else; the tool's own `title` is the one this
+server fills in. A client that only knows `name` and `description` ignores the new field
+and stays right, the way section 16 put it for `serverInfo`.
+
+A client that cached the old spelling stops working: `srv01.example.com.exec` is the
+unknown tool now. That is the same deliberate break section 17 made of the bare `exec`
+— `tools/list` is where a client reads the names, which is what this server has always
+expected — and it is worth spelling out, because the names are the API.
+
+Changed:
+
+- `src/server.go` — `Title` in `Tool`, `ToolName()` building the prefix through
+  `strings.ReplaceAll` and the trim, `maxToolNameLen` and `toolNameSeparator` added next
+  to it, `execTool()` and `shellTool()` reading their key from a local, so the name and
+  the title share it;
+- `src/edit_file.go` — `editFileTool()` the same way;
+- `tests/tool_names_test.go` — the expectations follow the new spelling, the loop checks
+  the title of every tool and that an announced name carries no dot, and two tests are
+  new: the title as a client sees it, read back from the marshaled `tools/list` answer,
+  and a server name too long for the limit losing its end — both names exactly 64
+  characters, the tool part intact, and the trimmed name still reaching its handler
+  through `tools/call`;
+- `README.md` — the feature bullet, the `[tools]` comment in the configuration example,
+  the `Request Format` example and its intro, the `Available Tools` intro;
+  `mcp-exec.ini`, `mcp-exec.default` — the same comments, the settings left at their
+  defaults.
+
+Build and tests were run on this machine (go1.27.4, freebsd/amd64): `go build ./...`,
+`go vet ./...` — no remarks; `go test ./...` — all tests green (the suite is 64 tests
+now); `gofmt -l` — empty. Cross-target `go build` — windows/amd64, darwin/arm64,
+linux/amd64, freebsd/arm64 — all compile. Checked end-to-end over HTTP: with
+`[server] name = srv01.example.com`, `tools/list` announces `srv01_example_com-exec`,
+`srv01_example_com-shell` and `srv01_example_com-edit_file` and each carries its plain
+title, `tools/call` for `srv01_example_com-shell` runs the shell, the spelling section
+17 announced — `srv01.example.com.shell` — comes back as the unknown tool, and
+`initialize` and the startup log still report the DNS name as it reads it; with a name
+of two 63-character labels the three announced names come back exactly 64 characters
+long, the tool part whole, and `tools/call` through the trimmed name reaches its
+handler.

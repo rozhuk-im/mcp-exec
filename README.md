@@ -19,7 +19,10 @@ Support the author
 
 - **One LLM, several servers**: a single LLM model can use several `mcp-exec`
   instances at the same time; every tool is announced — and called — under the
-  server name (`name.tool`), so a client sees which instance a call belongs to
+  server name, `<server_name>-<tool>` (the name's dots read as underscores, the
+  whole name kept within 64 characters), so a client sees which instance a call
+  belongs to; every tool also reports a `title` — the plain tool name, the short
+  spelling a client shows a human
 - **Multiple Transport Modes**: HTTP, HTTPS, Unix domain socket, or stdio
 - **Flexible Configuration**: INI format configuration file with environment variable
   overrides and a `--config` command-line flag (precedence: flag > env > file > defaults)
@@ -172,7 +175,9 @@ max_file_size = 10485760
 ; other INI booleans (true/1/yes/on are on, anything else is off). A tool that
 ; is switched off is not announced through tools/list, and a direct call to it
 ; is refused; a tool the section does not name keeps the default (enabled). The
-; key is the plain tool name — tools/list announces <server name>.<tool>.
+; key is the plain tool name — the title each tool reports; tools/list announces
+; <server_name>-<tool> (the dots of the server name read as underscores, the
+; whole name kept within 64 characters).
 exec = true
 shell = true
 edit_file = true
@@ -239,8 +244,11 @@ the server does on that host, and `version` is what `-ldflags -X main.version=` 
 
 #### Request Format
 
-The name in `params` is the announced name — `server name.tool`, the server name being
-what `initialize` reports (see above); a client takes it from `tools/list`.
+The name in `params` is the announced name — `<server_name>-<tool>`: the dots of the
+server name read as underscores, a hyphen joins the two parts, and the whole name is
+kept within 64 characters (a server name too long for that loses its end). The server
+name is what `initialize` reports (see above); a client takes the name from
+`tools/list`, where every tool also carries its `title` — the plain tool name.
 
 ```json
 {
@@ -248,7 +256,7 @@ what `initialize` reports (see above); a client takes it from `tools/list`.
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "srv01.example.com.exec",
+    "name": "srv01_example_com-exec",
     "arguments": {
       "command": "ls",
       "args": ["-la"],
@@ -316,11 +324,14 @@ the value is parsed like the other INI booleans). A tool that is switched off is
 announced through `tools/list`, and a direct `tools/call` does not reach its handler
 either — it is refused the way an unknown tool is.
 
-A tool answers to the announced name — `server name.tool`, the server name being what
-`initialize` reports (see above). The `[tools]` keys and `MCP_EXEC_DISABLED_TOOLS` stay
-the plain tool names: what the operator writes does not depend on which machine the
-call lands on. Every tool description names the server it runs on; `name` below is
-that name.
+A tool answers to the announced name — `<server_name>-<tool>`, the server name being
+what `initialize` reports (see above), its dots written as underscores and the whole
+name kept within 64 characters, so a server name too long for that loses its end. The
+`[tools]` keys and `MCP_EXEC_DISABLED_TOOLS` stay the plain tool names: what the
+operator writes does not depend on which machine the call lands on, and the plain name
+is also what every tool reports as its `title` — the field a client shows a human,
+`name` being the one a call carries. Every tool description names the server it runs
+on; `name` below is that name, and the headings below are the plain tool names.
 
 #### `exec` - Execute a command directly
 

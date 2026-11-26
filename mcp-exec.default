@@ -32,8 +32,10 @@ MCP_EXEC_DAEMON=false
 MCP_EXEC_CHROOT=
 
 # Tools (per-tool switches live in the [tools] section of the INI file, the key
-# being the plain tool name — tools/list announces <server name>.<tool>; this env
-# var is the override: comma-separated plain names to switch off)
+# being the plain tool name — the title each tool reports; tools/list announces
+# <server_name>-<tool>, the dots read as underscores and the whole name kept
+# within 64 characters; this env var is the override: comma-separated plain
+# names to switch off)
 # MCP_EXEC_DISABLED_TOOLS=shell,edit_file
 
 # TLS (required for transport=https, optional for domain)

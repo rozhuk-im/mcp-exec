@@ -94,10 +94,12 @@ type ListToolsResponse struct {
 	Tools []Tool `json:"tools"`
 }
 
-// Tool describes an MCP tool — name, description, inputSchema, plus the optional
-// annotations block protocol 2025-06-18 added
+// Tool describes an MCP tool — name, title, description, inputSchema, plus the optional
+// annotations block protocol 2025-06-18 added. name is what a call carries, title is
+// the short spelling a client shows a human: the plain tool name.
 type Tool struct {
 	Name        string           `json:"name"`
+	Title       string           `json:"title,omitempty"`
 	Description string           `json:"description"`
 	InputSchema InputSchema      `json:"inputSchema"`
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
@@ -493,12 +495,40 @@ func ServerName() string {
 	return randomName()
 }
 
-// ToolName is the name a tool is announced and called by: the server name as a prefix,
-// then the tool. The [tools] section keys stay the plain tool name — the operator writes
-// those, and they do not depend on which machine the config lands on.
+// ToolName is the name a tool is announced and called by: the server name, a hyphen,
+// then the tool. The server name comes from ServerName() in its DNS spelling, and is
+// written here with every dot read as an underscore, because the alphabet a client
+// checks a tool name against has letters, digits, hyphens and underscores and no dot;
+// the hyphen is what keeps the two parts apart, so a name cut between a label and a
+// tool is still readable. The whole name is kept within maxToolNameLen characters, and
+// when it does not fit the server name gives up its end — the tool is what the client
+// is asking for, so that part always survives the trim. The [tools] section keys stay
+// the plain tool name — the operator writes those, they do not depend on which machine
+// the config lands on, and they are what each tool reports as its title.
 func ToolName(toolName string) string {
-	return fmt.Sprintf("%s.%s", ServerName(), toolName)
+	// what is left for the server name once the separator and the tool have been paid for
+	room := maxToolNameLen - len(toolName) - len(toolNameSeparator)
+	if room < 0 {
+		room = 0 // a tool name longer than the limit on its own; nothing left to trim
+	}
+
+	prefix := strings.ReplaceAll(ServerName(), ".", "_")
+	if len(prefix) > room {
+		prefix = prefix[:room] // the server name is the part that can be cut
+	}
+	if prefix == "" { // nothing left to separate, the tool stands on its own
+		return toolName
+	}
+
+	return prefix + toolNameSeparator + toolName
 }
+
+// maxToolNameLen is how long an announced tool name is allowed to be — the length a
+// client puts on a tool name; toolNameSeparator is what joins the two parts.
+const (
+	maxToolNameLen    = 64
+	toolNameSeparator = "-"
+)
 
 // randomName is RandomServerName, settled once, so that every answer of one running
 // server says the same thing however many handlers ask in parallel.
@@ -902,10 +932,13 @@ func handleInitialize(req *MCPRequest) *MCPResponse {
 
 // execTool and shellTool are the tool definitions, worded the way the standard tools
 // are worded; they mirror editFileTool() in edit_file.go, so every tool the server
-// defines is a function of its own.
+// defines is a function of its own. The key is the [tools] name, the argument ToolName
+// builds the announced name from, and the title the tool reports.
 func execTool() Tool {
+	key := "exec"
 	return Tool{
-		Name:        ToolName("exec"),
+		Name:        ToolName(key),
+		Title:       key,
 		Description: fmt.Sprintf("Execute a program directly with arguments, on %s", ServerName()),
 		InputSchema: InputSchema{
 			Type: "object",
@@ -940,8 +973,10 @@ func execTool() Tool {
 }
 
 func shellTool() Tool {
+	key := "shell" // the [tools] name, the argument of ToolName, the title
 	return Tool{
-		Name:        ToolName("shell"),
+		Name:        ToolName(key),
+		Title:       key,
 		Description: fmt.Sprintf("Execute a command through shell interpreter, on %s", ServerName()),
 		InputSchema: InputSchema{
 			Type: "object",
