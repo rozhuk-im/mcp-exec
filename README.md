@@ -14,6 +14,30 @@ Support the author
 * **PayPal:** [![PayPal](https://srv-cdn.himpfen.io/badges/paypal/paypal-flat.svg)](https://paypal.me/rojuc) <br/>
 * **Bitcoin (BTC):** `1AxYyMWek5vhoWWRTWKQpWUqKxyfLarCuz` <br/>
 
+## Disclaimer
+
+**Use it at your own risk!** Preferably run the server in an isolated
+environment — a virtual machine, a container, or a chroot such as
+[rozhuk-im/chroot_env](https://github.com/rozhuk-im/chroot_env) (builds
+read-only chroots with noexec/nosuid write areas on FreeBSD).
+
+Everything the caller asks for is executed on this host, as the user the server
+runs under, and the file tool edits files the same way. The built-in guards
+reduce the blast radius, they do not remove it: authentication keeps other
+clients out, not the client you already trust.
+
+- The caller is an LLM, so a prompt injected into its context can make it call
+  any tool you left switched on — "the model is a trusted caller" is a
+  convention, not a guarantee.
+- Anything the process can reach it can change or delete: files, devices,
+  credentials, other processes, the network. `exec` and `shell` are unconfined;
+  only `edit_file` is confined, and only to `allowed_dirs`.
+- Command output and file contents travel back into the model's context, so
+  whatever the server can read may leave this machine inside the next prompt.
+- Run as a dedicated unprivileged user rather than root, and switch off every
+  tool you do not use (`[tools]`) — a tool that is off cannot be called.
+- The project comes with no warranty of any kind (see `LICENSE`) and the author
+  accepts no liability for what an executed command does to your system.
 
 ## Features
 
