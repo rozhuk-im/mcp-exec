@@ -45,6 +45,8 @@ type Config struct {
 	ChrootPath    string   // [security] chroot_path — Linux and the BSDs, requires privileges
 	AllowedDirs   []string // [security] allowed_dirs — roots the file tool (edit_file) is confined to, comma-separated
 	MaxFileSize   int64    // [security] max_file_size — the largest file a file tool will read (default: DefaultMaxFileSize)
+	RunAsUser     string   // [security] user — drop privileges to this user before serving (unix platforms)
+	RunAsGroup    string   // [security] group — and to this group; a named user with no named group brings its own
 
 	Tools map[string]bool // [tools] per-tool switches — <tool name> = on/off; a tool the section does not name keeps the default (enabled)
 }
@@ -162,6 +164,9 @@ func Run(version, configPath string) error {
 
 	if Cfg.ChrootPath != "" && !ChrootSupported() {
 		return errors.New("chroot_path is supported only on Linux and the BSDs (FreeBSD, DragonFlyBSD, OpenBSD, NetBSD)")
+	}
+	if (Cfg.RunAsUser != "" || Cfg.RunAsGroup != "") && !PrivDropSupported() {
+		return errors.New("user and group are supported only on Linux, the BSDs (FreeBSD, DragonFlyBSD, OpenBSD, NetBSD) and macOS")
 	}
 
 	// Daemonize before opening log files, so the child owns fresh descriptors
@@ -292,6 +297,13 @@ func optionalTLSConfig() *tls.Config {
 
 // serveWithShutdown serves until a shutdown signal arrives, then gracefully closes
 func serveWithShutdown(ctx context.Context, srv *http.Server, ln net.Listener, tlsConfig *tls.Config) error {
+	// Everything a privileged start was needed for is done by now — the log file,
+	// the certificates and this listener — so the credentials drop right here, before
+	// the first request is served
+	if err := DropPrivileges(); err != nil {
+		return err
+	}
+
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -432,6 +444,12 @@ func LoadConfig(explicitPath string) error {
 	}
 	if chroot := os.Getenv("MCP_EXEC_CHROOT"); chroot != "" {
 		Cfg.ChrootPath = chroot
+	}
+	if runAsUser := os.Getenv("MCP_EXEC_USER"); runAsUser != "" {
+		Cfg.RunAsUser = runAsUser
+	}
+	if runAsGroup := os.Getenv("MCP_EXEC_GROUP"); runAsGroup != "" {
+		Cfg.RunAsGroup = runAsGroup
 	}
 	if allowedDirs := os.Getenv("MCP_EXEC_ALLOWED_DIRS"); allowedDirs != "" {
 		Cfg.AllowedDirs = splitAllowedDirs(allowedDirs)
@@ -647,6 +665,10 @@ func setConfigValue(section, key, value string) error {
 			if n, err := strconv.ParseInt(value, 10, 64); err == nil {
 				Cfg.MaxFileSize = n
 			}
+		case "user":
+			Cfg.RunAsUser = value
+		case "group":
+			Cfg.RunAsGroup = value
 		}
 	case "tools":
 		if Cfg.Tools == nil {
@@ -1361,6 +1383,11 @@ func writeJSONRPC(w http.ResponseWriter, resp *MCPResponse, status int) {
 }
 
 func runStdio() error {
+	// stdio opens no listener, so the credentials drop right here instead
+	if err := DropPrivileges(); err != nil {
+		return err
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
 	for {

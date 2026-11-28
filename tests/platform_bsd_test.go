@@ -13,12 +13,19 @@ import (
 
 // The BSD row of the README platform matrix. Go's BSD syscall package exposes
 // Chroot/Setpgid/Setsid in SysProcAttr and applies chroot() in the child, so FreeBSD,
-// DragonFly BSD, OpenBSD and NetBSD get the same feature level as Linux:
-// chroot isolation (needs privileges), setsid daemon mode, process-group kill and SIGHUP.
+// DragonFly BSD, OpenBSD and NetBSD get the same feature level as Linux: chroot
+// isolation (needs privileges), setsid daemon mode, process-group kill, SIGHUP and the
+// setuid/setgid [security] user and group drop.
 
 func TestBSDChrootSupported(t *testing.T) {
 	if !mcpxec.ChrootSupported() {
 		t.Errorf("%s: chroot must be supported on the BSDs", runtime.GOOS)
+	}
+}
+
+func TestBSDPrivDropSupported(t *testing.T) {
+	if !mcpxec.PrivDropSupported() {
+		t.Errorf("%s: setuid/setgid work on the BSDs, they must be supported", runtime.GOOS)
 	}
 }
 

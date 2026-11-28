@@ -31,6 +31,14 @@ MCP_EXEC_DAEMON=false
 # FreeBSD/DragonFlyBSD/OpenBSD/NetBSD — need root/privileges)
 MCP_EXEC_CHROOT=
 
+# User and group to drop to before serving (unix platforms; a name from the system
+# database or a plain numeric ID). The drop is the last thing before the transport
+# serves, so a privileged port and a root-owned log file stay possible. Only root
+# can change credentials, so a process that is not root can only ask for what it
+# already is — leave empty to stay who you are
+MCP_EXEC_USER=
+MCP_EXEC_GROUP=
+
 # Tools (per-tool switches live in the [tools] section of the INI file, the key
 # being the plain tool name — the title each tool reports; tools/list announces
 # <server_name>-<tool>, the dots read as underscores and the whole name kept

@@ -16,6 +16,11 @@ import (
 
 func ChrootSupported() bool { return false }
 
+// PrivDropSupported reports false for these ports, as ChrootSupported above does —
+// the platforms the platform layer does not name are the untested ones, so setting
+// [security] user or group here stops the startup (see privdrop_other.go)
+func PrivDropSupported() bool { return false }
+
 func ProcAttr(chroot string, setpgid bool) *syscall.SysProcAttr {
 	_ = chroot
 	return &syscall.SysProcAttr{Setpgid: setpgid}

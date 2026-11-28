@@ -10,11 +10,17 @@ import (
 	mcpxec "github.com/mcp-exec/src"
 )
 
-// The Linux row of the README platform matrix.
+// The Linux row of the README platform matrix: chroot, setuid/setgid, setsid, group kill
 
 func TestLinuxChrootSupported(t *testing.T) {
 	if !mcpxec.ChrootSupported() {
 		t.Error("linux: chroot must be supported")
+	}
+}
+
+func TestLinuxPrivDropSupported(t *testing.T) {
+	if !mcpxec.PrivDropSupported() {
+		t.Error("linux: setuid/setgid are what dropping to a user needs, they must be supported")
 	}
 }
 

@@ -11,6 +11,10 @@ import (
 // chroot is not available on Windows
 func ChrootSupported() bool { return false }
 
+// PrivDropSupported reports that there is no setuid/setgid here, so [security] user
+// and group are refused at startup (see src/privdrop_windows_stub.go)
+func PrivDropSupported() bool { return false }
+
 func ProcAttr(chroot string, setpgid bool) *syscall.SysProcAttr {
 	return nil
 }

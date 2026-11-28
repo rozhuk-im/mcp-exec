@@ -57,6 +57,10 @@ clients out, not the client you already trust.
   - API key authentication (constant-time comparison)
   - Optional chroot isolation for command execution (Linux and the BSDs —
     FreeBSD/DragonFlyBSD/OpenBSD/NetBSD; requires privileges)
+  - `user` / `group` — the process drops its privileges in the last moment before it
+    serves, so a privileged port, a log file and a root-owned socket are still opened
+    while it has the privilege to open them (unix platforms; on Windows the two settings
+    are a startup error)
   - Allowed-directory roots for the file tool (`allowed_dirs`) — confinement is checked
     after resolving symlinks, so a symlink cannot be used to escape a root
   - Configurable request/response size limits (oversize request → HTTP 413)
@@ -182,6 +186,15 @@ syslog_address = /dev/log
 ; working directory must exist INSIDE the chroot at the same absolute paths.
 chroot_path =
 
+; User and group to drop to before the transport starts serving — names from the system
+; database, or plain numeric IDs (a value of all digits is the ID itself, no database
+; entry needed). A named user with no named group brings its own primary group along, and
+; an empty setting means stay who you are. A name the database does not know stops the
+; startup, and so does any change a process that is not root cannot make. Unix platforms
+; only — on Windows these two are startup errors.
+user =
+group =
+
 ; Roots the file tool (edit_file) is confined to, comma-separated, e.g.
 ;   allowed_dirs = /srv/mcp-exec/files, /etc/mcp-exec
 ; With no roots set the file tool falls back to chroot_path as its root
@@ -231,6 +244,8 @@ All configuration options can be overridden via environment variables
 | `MCP_EXEC_MAX_REQ_SIZE` | Maximum request size in bytes |
 | `MCP_EXEC_MAX_RESP_SIZE` | Maximum response size in bytes |
 | `MCP_EXEC_CHROOT` | Chroot path for command execution (Linux and the BSDs) |
+| `MCP_EXEC_USER` | User to drop to before serving — a name or a numeric ID (unix platforms) |
+| `MCP_EXEC_GROUP` | Group to drop to before serving — a name or a numeric ID (unix platforms) |
 | `MCP_EXEC_ALLOWED_DIRS` | Roots the `edit_file` tool is confined to (comma-separated) |
 | `MCP_EXEC_MAX_FILE_SIZE` | Largest file `edit_file` will read, in bytes |
 | `MCP_EXEC_DISABLED_TOOLS` | Tools to switch off (comma-separated names), overrides the `[tools]` section |
@@ -580,6 +595,7 @@ MCP_EXEC_TRANSPORT=stdio ./mcp-exec
 | daemon (setsid)             | ✅        | ✅      | ✅           | ✅      | ✅     | ✅      | n/a⁶    |
 | SIGINT/SIGTERM/SIGHUP       | ✅        | ✅      | ✅           | ✅      | ✅     | ✅      | ❌⁷     |
 | init system for the service | systemd⁸  | rc.d⁸   | rc.d⁸        | rc.d⁸   | rc.d⁸  | launchd⁸ | n/a⁸   |
+| user and group (setuid)     | ✅        | ✅      | ✅           | ✅      | ✅     | ✅      | ❌⁹     |
 
 ¹ Unix domain sockets exist on Windows but are not typically used; the transport works via
 Go's `net` package.
@@ -602,6 +618,12 @@ FreeBSD/DragonFlyBSD/OpenBSD/NetBSD use the platform init system — an rc.d scr
 same `--config` command line; on macOS use a launchd plist. `daemon=true` in the config works
 on every unix platform and is the simplest option when there is no init system. `install.sh`
 skips the unit on non-Linux systems.
+⁹ `setuid()`/`setgid()` are unix calls, so `user`/`group` work on Linux, the BSDs and
+macOS, and are a startup error on Windows. The drop happens in the last moment before a
+transport serves — the log file, the certificates, the socket and a privileged port are
+all opened while the process is still privileged — and only root, or the platform
+equivalent, can change credentials, so a process that is not root can only ask for what it
+is already.
 
 ## Daemon Mode
 
@@ -612,6 +634,9 @@ skips the unit on non-Linux systems.
 Works on Linux, FreeBSD, DragonFly BSD, OpenBSD, NetBSD and macOS (on Windows the child is
 re-execed without setsid).
 
+The re-exec keeps the credentials it started with, so `user` and `group` are applied in
+the child, in the last moment before it serves — see Security Considerations.
+
 ## Security Considerations
 
 1. **Authentication**: Always use authentication in production environments.
@@ -619,19 +644,28 @@ re-execed without setsid).
 2. **Chroot**: available on Linux and the BSDs (FreeBSD/DragonFlyBSD/OpenBSD/NetBSD).
    `chroot()` requires root or the platform equivalent — on Linux add
    `AmbientCapabilities=CAP_CHROOT` to the systemd unit when running as a non-root user;
-   on the BSDs run as root (or grant the equivalent privilege). The chroot must contain
-   every executable, shell and working directory **at the same absolute paths** as on the host.
-3. **`edit_file` roots**: `allowed_dirs` (and `MCP_EXEC_ALLOWED_DIRS`) confine the file
+3. **User and group**: `user` and `group` (and `MCP_EXEC_USER`/`MCP_EXEC_GROUP`) are the
+   setting version of the disclaimer's advice — run as a dedicated unprivileged user. A
+   value is a name from the system database, or a plain numeric ID; a name the database
+   does not know stops the startup, and so does any change a process that is not root
+   cannot make — only root, or the platform equivalent (`CAP_SETUID`/`CAP_SETGID` under
+   systemd), can change credentials, so a non-root process can only ask to stay who it is.
+   The drop is applied in the last moment before a transport starts serving, so the log
+   file, the certificates, the socket and a privileged port are all opened while the
+   process still has its privileges; after it, the commands the tools run belong to the
+   user the config names. Asking for the user and group you already are is not an error,
+   and that is what a configuration shared by several machines looks like.
+4. **`edit_file` roots**: `allowed_dirs` (and `MCP_EXEC_ALLOWED_DIRS`) confine the file
    tool, and the check is made after resolving symlinks, so a link cannot take it outside
    the roots. With no roots the tool falls back to `chroot_path` as its root; with neither
    set it is unconfined, exactly as `exec`/`shell` are. Set `max_file_size` to keep the tool
    from pulling a huge file into memory.
-4. **Size Limits**: Configure appropriate request/response size limits; they are enforced
+5. **Size Limits**: Configure appropriate request/response size limits; they are enforced
    on HTTP, domain socket and stdio transports.
-5. **Network**: Bind to appropriate network interfaces; CORS is `*` by default, so any
+6. **Network**: Bind to appropriate network interfaces; CORS is `*` by default, so any
    browser origin may POST to this endpoint.
-6. **Logging**: Enable logging for audit purposes.
-7. **Command injection**: The `shell` tool passes the command string to `sh -c` as is —
+7. **Logging**: Enable logging for audit purposes.
+8. **Command injection**: The `shell` tool passes the command string to `sh -c` as is —
    that is the intended behaviour (arbitrary utilities, arbitrary arguments), so treat
    the model as a trusted caller or use chroot isolation.
 
@@ -677,6 +711,14 @@ On FreeBSD, DragonFly BSD, OpenBSD and NetBSD the equivalent is an rc.d script
 (`/usr/local/etc/rc.d/mcp-exec`, using `/etc/rc.subr` on FreeBSD/DragonFly, `rc.subr` on
 OpenBSD/NetBSD) running the same `--config` command line; on macOS use a launchd plist.
 `install.sh` installs the systemd unit only on Linux.
+
+The unit's own `User=`/`Group=` lines are the same job as `[security] user` and
+`[security] group`: they put the process into the right credentials before it starts, so the
+settings have nothing left to change there. The settings are for the runs where no init
+system does it — `daemon=true`, an rc.d script, a launchd plist, or a start by hand — which
+is what the disclaimer's "run as a dedicated unprivileged user" costs to do by hand. Setting
+both the unit lines and the settings is not a conflict: the unit gets there first, and the
+process then finds itself already where it asked to be.
 
 ## License
 

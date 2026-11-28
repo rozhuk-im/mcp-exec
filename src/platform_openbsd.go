@@ -10,11 +10,16 @@ import (
 
 // OpenBSD: chroot/setsid/Setpgid come from syscall.SysProcAttr and are applied in the
 // child before exec, so chroot isolation, setsid daemon mode and process-group kill
-// work natively. chroot() needs privileges; if you want the daemon to drop to an
-// unprivileged user, do it with setuid/setgid at startup (SysProcAttr.Credential is
-// not used by this project), not by chrooting the command itself.
+// work natively. chroot() needs privileges; dropping to an unprivileged user is the
+// startup job here — [security] user and group, applied before the first request is
+// served (SysProcAttr.Credential is not used by this project), not by chrooting the
+// command itself.
 
 func ChrootSupported() bool { return true }
+
+// PrivDropSupported reports that setuid/setgid work here — see src/privdrop_unix.go
+// and the [security] user/group settings
+func PrivDropSupported() bool { return true }
 
 // ProcAttr builds SysProcAttr with chroot and its own process group
 func ProcAttr(chroot string, setpgid bool) *syscall.SysProcAttr {

@@ -12,11 +12,18 @@ import (
 )
 
 // The Windows row of the README platform matrix: no chroot, no SysProcAttr support
-// (both attrs stay nil), no syslog, and the signal set is SIGINT + SIGTERM only.
+// (both attrs stay nil), no syslog, no setuid/setgid — [security] user and group are a
+// startup error here — and the signal set is SIGINT + SIGTERM only.
 
 func TestWindowsChrootSupported(t *testing.T) {
 	if mcpxec.ChrootSupported() {
 		t.Error("windows: chroot must stay unsupported")
+	}
+}
+
+func TestWindowsPrivDropSupported(t *testing.T) {
+	if mcpxec.PrivDropSupported() {
+		t.Error("windows: there is no setuid/setgid here, so [security] user and group must stay unsupported")
 	}
 }
 

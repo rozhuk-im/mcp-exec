@@ -12,6 +12,10 @@ import (
 // SysProcAttr.Chroot exists here, but macOS prefers setuid/setgid/launchd isolation.
 func ChrootSupported() bool { return false }
 
+// PrivDropSupported reports that setuid/setgid are exactly what macOS does have, so
+// [security] user/group are honoured here — chroot is not (the comment above)
+func PrivDropSupported() bool { return true }
+
 func ProcAttr(chroot string, setpgid bool) *syscall.SysProcAttr {
 	_ = chroot
 	return &syscall.SysProcAttr{Setpgid: setpgid}

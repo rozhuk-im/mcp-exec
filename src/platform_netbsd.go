@@ -14,6 +14,10 @@ import (
 
 func ChrootSupported() bool { return true }
 
+// PrivDropSupported reports that setuid/setgid work here — see src/privdrop_unix.go
+// and the [security] user/group settings
+func PrivDropSupported() bool { return true }
+
 // ProcAttr builds SysProcAttr with chroot and its own process group
 func ProcAttr(chroot string, setpgid bool) *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Chroot: chroot, Setpgid: setpgid}

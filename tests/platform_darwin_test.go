@@ -10,13 +10,20 @@ import (
 	mcpxec "github.com/mcp-exec/src"
 )
 
-// The macOS row of the README platform matrix: setsid/SIGHUP/group kill work,
-// chroot stays disabled by design (SysProcAttr.Chroot exists on darwin, but the
-// project does not use it — see src/platform_darwin.go).
+// The macOS row of the README platform matrix: setsid/SIGHUP/group kill work, and so do
+// setuid/setgid — which is the isolation macOS uses, chroot staying disabled by design
+// (SysProcAttr.Chroot exists on darwin, but the project does not use it — see
+// src/platform_darwin.go).
 
 func TestDarwinChrootSupported(t *testing.T) {
 	if mcpxec.ChrootSupported() {
 		t.Error("darwin: chroot is intentionally not used")
+	}
+}
+
+func TestDarwinPrivDropSupported(t *testing.T) {
+	if !mcpxec.PrivDropSupported() {
+		t.Error("darwin: setuid/setgid are what macOS uses for this, they must be supported")
 	}
 }
 

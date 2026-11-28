@@ -9,15 +9,17 @@ through MCP — 2026-11-22 (see section 14); per-tool switches, the `[tools]` se
 — 2026-11-22 (see section 15); `initialize` reports the host it runs on — 2026-11-24
 (see section 16); tools are announced under the server name — 2026-11-24 (see
 section 17); tool names in the tool alphabet, and the titles — 2026-11-26
-(see section 18)
+(see section 18); `[security] user`/`group` — the process drops its privileges before it
+serves — 2026-11-28 (see section 19)
 
 Files audited (current structure): `src/server.go`, `src/edit_file.go`, `src/platform_linux.go`,
 `src/platform_darwin.go`, `src/platform_windows.go`, `src/platform_other.go`,
 `src/platform_freebsd.go`, `src/platform_netbsd.go`, `src/platform_openbsd.go`, `src/platform_dragonfly.go`, `src/syslog_unix.go`, `src/syslog_other.go`, `src/syslog_windows_stub.go`,
+`src/privdrop.go`, `src/privdrop_unix.go`, `src/privdrop_other.go`, `src/privdrop_windows_stub.go`,
 `cmd/mcp-exec/main.go`, `tests/main_test.go`, `tests/edit_file_test.go`, `tests/platform_test.go`,
 `tests/platform_bsd_test.go`, `tests/platform_linux_test.go`,
 `tests/platform_darwin_test.go`, `tests/platform_windows_test.go`,
-`tests/platform_unix_test.go`, `tests/tools_config_test.go`, `tests/server_info_test.go`, `tests/tool_names_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
+`tests/platform_unix_test.go`, `tests/tools_config_test.go`, `tests/server_info_test.go`, `tests/tool_names_test.go`, `tests/privdrop_test.go`, `tests/privdrop_unix_test.go`, `go.mod`, `Makefile`, `build.sh`, `install.sh`, `README.md`,
 `mcp-exec.ini`, `mcp-exec.default`, `mcp-exec.service`, `docker/Dockerfile`,
 `docker/docker-compose.yml`, `docker/.env.example`, `.gitignore`.
 
@@ -715,3 +717,85 @@ title, `tools/call` for `srv01_example_com-shell` runs the shell, the spelling s
 of two 63-character labels the three announced names come back exactly 64 characters
 long, the tool part whole, and `tools/call` through the trimmed name reaches its
 handler.
+
+---
+
+## 19. `[security] user` and `group` — dropping privileges at startup (2026-11-28)
+
+The disclaimer had been telling the operator to run as a dedicated unprivileged user while
+every way of doing it lived outside the program — the unit's `User=`/`Group=`, an rc.d script,
+a launchd plist, a container's `USER` line, `su`. Two settings do it from inside now:
+`[security] user` and `[security] group`, with `MCP_EXEC_USER`/`MCP_EXEC_GROUP` as the env
+overrides, in the precedence order the other options use. The process resolves the two and, in
+the last moment before a transport starts serving, sets the group list, the group and the user
+— that order, because `setuid()` is the call that takes away the privilege the other two need
+— and the supplementary group list becomes the single group it drops to: the list a process
+inherits when it starts as root is not what the operator asked for.
+
+Where it happens is deliberate. The daemon fork goes first — the child needs the privileges the
+parent had, and the parent exits while still root, so the drop lands in the child. Then the
+logger, the certificates and the listener: a log file that has to be created by root, a socket
+in a root-owned directory and a privileged port are all things only root can do. The drop comes
+after them, before the first request is served, which is also why it is called from
+`serveWithShutdown` and from `runStdio` — the two places where serving starts — rather than
+from the top of `Run`. A domain socket file created on the way is therefore owned by the user
+the server started as, and that is the price of asking for both in one config.
+
+A value of all digits is that ID itself — no database entry needed for it, which is what a
+container without an `/etc/passwd` has to work with, and on this box `os/user` is the pure-Go
+file reader anyway (`CGO_ENABLED=0`), so a name is only as good as the files. Anything else is
+a name in the system database, and a name it does not know stops the startup — a setting the
+operator wrote should not fail silently, the way section 16 put it for `[server] name`. A named
+user with no named group brings its own primary group along; a drop that named only the user
+would otherwise leave it in the group it started in, which is the root group when the drop
+starts from root. An empty setting means "stay what you are", and asking for who you already are
+is not an error — that is what a configuration shared by several machines looks like. A *change*
+belongs to root, or to the platform equivalent (`CAP_SETUID`/`CAP_SETGID` under the unit), so a
+process that is not root can only ask to stay who it is, and the startup says so.
+
+`setuid()`/`setgid()` are unix calls, so the two settings work on Linux, the BSDs and macOS —
+which is the isolation macOS prefers, chroot being out here by design — and they are refused at
+startup on Windows and on the untested ports the platform layer does not name, exactly as
+`chroot_path` is there. `PrivDropSupported()` sits in each platform file next to
+`ChrootSupported()` for that. The applying is split the way the syslog part is —
+`src/privdrop_unix.go`, `src/privdrop_other.go`, `src/privdrop_windows_stub.go` — and the
+resolving, which needs no platform call at all, lives in `src/privdrop.go`.
+`SysProcAttr.Credential` stays unused, as the OpenBSD file always said: it is a per-child thing,
+and this is a job for the server process itself. The OpenBSD comment that used to send the
+operator off to "setuid/setgid at startup" now names the settings that do it.
+
+Changed:
+
+- `src/server.go` — `RunAsUser`/`RunAsGroup` in `Config`, the two keys in the `[security]`
+  section of `setConfigValue`, the two env overrides in `LoadConfig`, the platform check in
+  `Run` next to the chroot one, and `DropPrivileges()` called from `serveWithShutdown` and
+  from `runStdio`;
+- `src/privdrop.go`, `src/privdrop_unix.go`, `src/privdrop_other.go`,
+  `src/privdrop_windows_stub.go` — new, the same four-way split the syslog files use;
+- `src/platform_{linux,freebsd,dragonfly,netbsd,openbsd,darwin,windows,other}.go` —
+  `PrivDropSupported()` next to `ChrootSupported()`, and the OpenBSD header reworded;
+- `tests/privdrop_test.go` — new, six portable tests: the section, the env override, two empty
+  settings, plain numbers taken as IDs, a name the database does not know, and `Run` stopping on
+  it — over stdio, so no port and no log file are involved;
+- `tests/privdrop_unix_test.go` — new, four tests for the unix rows: the predicate, a name
+  answering the IDs of its own entry (and bringing its group), asking to stay who you are, and
+  the root requirement;
+- the four `tests/platform_<os>_test.go` files — one predicate check per row of the matrix, and
+  the file headers now say what their row covers;
+- `README.md` — the feature bullet, the `[security]` example, the env table rows, the matrix row
+  and footnote ⁹, the daemon-mode and systemd notes, and a numbered item in `Security
+  Considerations` (the list renumbered); `mcp-exec.ini`, `mcp-exec.default` — the new keys,
+  both left at their defaults.
+
+Build and tests were run on this machine (go1.27.4, freebsd/amd64): `go build ./...`,
+`go vet ./...` — no remarks; `go test ./...` — all tests green (75 on this platform, the four
+per-platform rows adding themselves where they build); `gofmt -l` — empty. Cross-target
+`go build` — windows/amd64, darwin/arm64, linux/amd64, freebsd/arm64, netbsd/amd64,
+openbsd/amd64, dragonfly/amd64 — all compile, and so do aix/ppc64 and solaris/amd64; plan9 and
+js/wasm still stop at the `SysProcAttr.Setpgid` the fallback platform file has always used
+there, which section 10 had already marked as untested. Checked end-to-end over stdio:
+`MCP_EXEC_USER=rim MCP_EXEC_GROUP=rim` logs the no-change case and serves the request,
+`MCP_EXEC_USER=0` — a change this box cannot make, it is not root — stops the startup with the
+message naming the privilege that is missing, exit code 1. The syscalls themselves are the plain
+`syscall.Setgroups`/`Setgid`/`Setuid`, and this box cannot run them; what is vouched for here is
+the order they are called in, not a run of them.
